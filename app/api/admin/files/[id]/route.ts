@@ -7,6 +7,16 @@ import { getOrderFileDownloadUrl } from "@/lib/yandex-disk";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type FileRow = {
+  disk_path: string | null;
+  file_name: string | null;
+  mime_type: string | null;
+};
+
+function makeDownloadFileName(fileName: string) {
+  return fileName.replace(/["\\\r\n]/g, "_") || "document";
+}
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> }
@@ -31,9 +41,9 @@ export async function GET(
     );
   }
 
-  const result = await getDb().query<{ disk_path: string | null }>(
+  const result = await getDb().query<FileRow>(
     `
-      SELECT disk_path
+      SELECT disk_path, file_name, mime_type
       FROM order_items
       WHERE order_id = $1
       LIMIT 1;
@@ -41,9 +51,9 @@ export async function GET(
     [orderId]
   );
 
-  const diskPath = result.rows[0]?.disk_path;
+  const file = result.rows[0];
 
-  if (!diskPath) {
+  if (!file?.disk_path) {
     return NextResponse.json(
       { error: "Файл для этого заказа не найден." },
       { status: 404 }
@@ -51,10 +61,34 @@ export async function GET(
   }
 
   try {
-    const downloadUrl = await getOrderFileDownloadUrl(diskPath);
+    // Получаем временную закрытую ссылку у Яндекс Диска.
+    const downloadUrl = await getOrderFileDownloadUrl(file.disk_path);
 
-    return NextResponse.redirect(downloadUrl);
-  } catch {
+    // Скачиваем файл сервером и передаём его только авторизованному админу.
+    const diskResponse = await fetch(downloadUrl, {
+      cache: "no-store",
+    });
+
+    if (!diskResponse.ok || !diskResponse.body) {
+      throw new Error("Не удалось скачать файл с Яндекс Диска.");
+    }
+
+    const fileName = makeDownloadFileName(file.file_name ?? "document");
+    const encodedFileName = encodeURIComponent(fileName);
+
+    return new Response(diskResponse.body, {
+      headers: {
+        "Content-Type":
+          file.mime_type ??
+          diskResponse.headers.get("content-type") ??
+          "application/octet-stream",
+        "Content-Disposition": `attachment; filename="${fileName}"; filename*=UTF-8''${encodedFileName}`,
+        "Cache-Control": "private, no-store, max-age=0",
+      },
+    });
+  } catch (error) {
+    console.error("Ошибка скачивания файла администратором:", error);
+
     return NextResponse.json(
       { error: "Не удалось подготовить файл к скачиванию." },
       { status: 500 }
