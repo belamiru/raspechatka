@@ -1,15 +1,26 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { uploadOrderFile } from "@/lib/yandex-disk";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const MAX_FILE_SIZE = 25 * 1024 * 1024;
+
+const allowedMimeTypes = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+];
 
 let schemaReady: Promise<void> | null = null;
 
 function ensureSchema() {
   if (!schemaReady) {
     schemaReady = (async () => {
-      await getDb().query(`
+      const db = getDb();
+
+      await db.query(`
         CREATE TABLE IF NOT EXISTS orders (
           id BIGSERIAL PRIMARY KEY,
           order_number VARCHAR(40) NOT NULL UNIQUE,
@@ -25,11 +36,14 @@ function ensureSchema() {
         );
       `);
 
-      await getDb().query(`
+      await db.query(`
         CREATE TABLE IF NOT EXISTS order_items (
           id BIGSERIAL PRIMARY KEY,
           order_id BIGINT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
           file_name VARCHAR(255),
+          disk_path TEXT,
+          file_size BIGINT,
+          mime_type VARCHAR(120),
           paper_format VARCHAR(10) NOT NULL,
           page_count INTEGER NOT NULL,
           copies INTEGER NOT NULL,
@@ -38,6 +52,23 @@ function ensureSchema() {
           side_multiplier NUMERIC(4,2) NOT NULL,
           item_total INTEGER NOT NULL
         );
+      `);
+
+      // Эти поля добавятся в уже существующую таблицу,
+      // не затрагивая ранее созданный тестовый заказ.
+      await db.query(`
+        ALTER TABLE order_items
+        ADD COLUMN IF NOT EXISTS disk_path TEXT;
+      `);
+
+      await db.query(`
+        ALTER TABLE order_items
+        ADD COLUMN IF NOT EXISTS file_size BIGINT;
+      `);
+
+      await db.query(`
+        ALTER TABLE order_items
+        ADD COLUMN IF NOT EXISTS mime_type VARCHAR(120);
       `);
     })();
   }
@@ -52,31 +83,62 @@ function createOrderNumber() {
   return `R-${date}-${random}`;
 }
 
+function textValue(formData: FormData, name: string) {
+  const value = formData.get(name);
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export async function POST(request: Request) {
   try {
     await ensureSchema();
 
-    const body = await request.json();
+    const formData = await request.formData();
 
-    const customerName = String(body.customerName ?? "").trim();
-    const customerPhone = String(body.customerPhone ?? "").trim();
-    const customerEmail = String(body.customerEmail ?? "").trim();
-    const customerComment = String(body.customerComment ?? "").trim();
-    const fileName = String(body.fileName ?? "").trim();
+    const file = formData.get("file");
 
-    const paperFormat = body.paperFormat === "A3" ? "A3" : "A4";
-    const printSides =
-      body.printSides === "two-sided" ? "two-sided" : "one-sided";
-
-    const pageCount = Number(body.pageCount);
-    const copies = Number(body.copies);
-
-    if (!fileName) {
+    if (!(file instanceof File)) {
       return NextResponse.json(
         { error: "Сначала выберите файл для печати." },
         { status: 400 }
       );
     }
+
+    if (!allowedMimeTypes.includes(file.type)) {
+      return NextResponse.json(
+        { error: "Поддерживаются только PDF, JPG и PNG." },
+        { status: 400 }
+      );
+    }
+
+    if (file.size < 1) {
+      return NextResponse.json(
+        { error: "Выбранный файл пустой." },
+        { status: 400 }
+      );
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: "Размер файла не должен превышать 25 МБ." },
+        { status: 400 }
+      );
+    }
+
+    const customerName = textValue(formData, "customerName");
+    const customerPhone = textValue(formData, "customerPhone");
+    const customerEmail = textValue(formData, "customerEmail");
+    const customerComment = textValue(formData, "customerComment");
+
+    const paperFormat =
+      textValue(formData, "paperFormat") === "A3" ? "A3" : "A4";
+
+    const printSides =
+      textValue(formData, "printSides") === "two-sided"
+        ? "two-sided"
+        : "one-sided";
+
+    const pageCount = Number(textValue(formData, "pageCount"));
+    const copies = Number(textValue(formData, "copies"));
 
     if (customerName.length < 2) {
       return NextResponse.json(
@@ -92,11 +154,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (
-      !Number.isInteger(pageCount) ||
-      pageCount < 1 ||
-      pageCount > 10000
-    ) {
+    if (!Number.isInteger(pageCount) || pageCount < 1 || pageCount > 10000) {
       return NextResponse.json(
         { error: "Проверьте количество страниц." },
         { status: 400 }
@@ -116,99 +174,102 @@ export async function POST(request: Request) {
       unitPrice * pageCount * copies * sideMultiplier
     );
 
-    let orderNumber = createOrderNumber();
+    const orderNumber = createOrderNumber();
 
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const client = await getDb().connect();
+    const uploadedFile = await uploadOrderFile({
+      file,
+      orderNumber,
+    });
 
-      try {
-        await client.query("BEGIN");
+    const client = await getDb().connect();
 
-        const orderResult = await client.query<{ id: string }>(
-          `
-            INSERT INTO orders (
-              order_number,
-              customer_name,
-              customer_phone,
-              customer_email,
-              customer_comment,
-              fulfillment_method,
-              status,
-              total_price
-            )
-            VALUES ($1, $2, $3, $4, $5, 'pickup', 'new', $6)
-            RETURNING id;
-          `,
-          [
-            orderNumber,
-            customerName,
-            customerPhone,
-            customerEmail || null,
-            customerComment || null,
-            totalPrice,
-          ]
-        );
+    try {
+      await client.query("BEGIN");
 
-        const orderId = orderResult.rows[0].id;
-
-        await client.query(
-          `
-            INSERT INTO order_items (
-              order_id,
-              file_name,
-              paper_format,
-              page_count,
-              copies,
-              print_sides,
-              unit_price,
-              side_multiplier,
-              item_total
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
-          `,
-          [
-            orderId,
-            fileName,
-            paperFormat,
-            pageCount,
-            copies,
-            printSides,
-            unitPrice,
-            sideMultiplier,
-            totalPrice,
-          ]
-        );
-
-        await client.query("COMMIT");
-
-        return NextResponse.json({
+      const orderResult = await client.query<{ id: string }>(
+        `
+          INSERT INTO orders (
+            order_number,
+            customer_name,
+            customer_phone,
+            customer_email,
+            customer_comment,
+            fulfillment_method,
+            status,
+            total_price
+          )
+          VALUES ($1, $2, $3, $4, $5, 'pickup', 'new', $6)
+          RETURNING id;
+        `,
+        [
           orderNumber,
+          customerName,
+          customerPhone,
+          customerEmail || null,
+          customerComment || null,
           totalPrice,
-        });
-      } catch (error) {
-        await client.query("ROLLBACK");
+        ]
+      );
 
-        if (
-          error instanceof Error &&
-          "code" in error &&
-          error.code === "23505"
-        ) {
-          orderNumber = createOrderNumber();
-          continue;
-        }
+      const orderId = orderResult.rows[0].id;
 
-        throw error;
-      } finally {
-        client.release();
-      }
+      await client.query(
+        `
+          INSERT INTO order_items (
+            order_id,
+            file_name,
+            disk_path,
+            file_size,
+            mime_type,
+            paper_format,
+            page_count,
+            copies,
+            print_sides,
+            unit_price,
+            side_multiplier,
+            item_total
+          )
+          VALUES (
+            $1, $2, $3, $4, $5,
+            $6, $7, $8, $9, $10, $11, $12
+          );
+        `,
+        [
+          orderId,
+          uploadedFile.originalName,
+          uploadedFile.diskPath,
+          uploadedFile.fileSize,
+          uploadedFile.mimeType,
+          paperFormat,
+          pageCount,
+          copies,
+          printSides,
+          unitPrice,
+          sideMultiplier,
+          totalPrice,
+        ]
+      );
+
+      await client.query("COMMIT");
+
+      return NextResponse.json({
+        orderNumber,
+        totalPrice,
+      });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
     }
-
-    throw new Error("Не удалось сформировать уникальный номер заказа.");
   } catch (error) {
     console.error("Ошибка создания заказа:", error);
 
     return NextResponse.json(
-      { error: "Не удалось создать заказ. Попробуйте ещё раз." },
+      {
+        error:
+          "Не удалось загрузить файл и создать заказ. Попробуйте ещё раз.",
+      },
       { status: 500 }
     );
   }

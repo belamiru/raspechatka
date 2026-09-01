@@ -17,6 +17,7 @@ type OrderRow = {
   status: "new" | "in_progress" | "ready" | "completed" | "cancelled";
   created_at: Date;
   file_name: string | null;
+  disk_path: string | null;
   paper_format: string;
   page_count: number;
   copies: number;
@@ -46,6 +47,7 @@ export default async function AdminPage() {
       orders.status,
       orders.created_at,
       order_items.file_name,
+      order_items.disk_path,
       order_items.paper_format,
       order_items.page_count,
       order_items.copies,
@@ -66,6 +68,7 @@ export default async function AdminPage() {
     status: order.status,
     createdAt: order.created_at.toISOString(),
     fileName: order.file_name,
+    diskPath: order.disk_path,
     paperFormat: order.paper_format ?? "—",
     pageCount: order.page_count ?? 0,
     copies: order.copies ?? 0,

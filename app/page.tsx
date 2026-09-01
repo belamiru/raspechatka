@@ -7,6 +7,7 @@ type PrintSide = "one-sided" | "two-sided";
 
 export default function Home() {
   const [fileName, setFileName] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [format, setFormat] = useState<PrintFormat>("A4");
   const [copies, setCopies] = useState(1);
   const [sides, setSides] = useState<PrintSide>("one-sided");
@@ -42,12 +43,13 @@ export default function Home() {
       return;
     }
 
-    if (file.size > 100 * 1024 * 1024) {
-      alert("Размер файла не должен превышать 100 МБ.");
-      return;
+    if (file.size > 25 * 1024 * 1024) {
+     alert("Размер файла не должен превышать 25 МБ.");
+     return;
     }
 
     setFileName(file.name);
+    setSelectedFile(file);
     setCreatedOrderNumber("");
     setFormError("");
   }
@@ -75,23 +77,27 @@ export default function Home() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch("/api/orders", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          fileName,
-          paperFormat: format,
-          pageCount: pages,
-          copies,
-          printSides: sides,
-          customerName,
-          customerPhone,
-          customerEmail,
-          customerComment,
-        }),
-      });
+      if (!selectedFile) {
+          setFormError("Сначала выберите файл для печати.");
+          return;
+        }
+
+        const formData = new FormData();
+
+        formData.append("file", selectedFile);
+        formData.append("paperFormat", format);
+        formData.append("pageCount", String(pages));
+        formData.append("copies", String(copies));
+        formData.append("printSides", sides);
+        formData.append("customerName", customerName);
+        formData.append("customerPhone", customerPhone);
+        formData.append("customerEmail", customerEmail);
+        formData.append("customerComment", customerComment);
+
+        const response = await fetch("/api/orders", {
+          method: "POST",
+          body: formData,
+        });
 
       const result = await response.json();
 
@@ -155,7 +161,7 @@ export default function Home() {
             <h2 className="text-2xl font-bold">1. Загрузите файл</h2>
             <p className="mt-2 text-sm leading-6 text-slate-500">
               Поддерживаются PDF, JPG и PNG. Максимальный размер одного файла —
-              100 МБ.
+              25 МБ.
             </p>
 
             <label
@@ -194,7 +200,10 @@ export default function Home() {
 
                 <button
                   type="button"
-                  onClick={() => setFileName("")}
+                  onClick={() => {
+                    setFileName("");
+                    setSelectedFile(null);
+                  }}
                   className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-100"
                 >
                   Удалить

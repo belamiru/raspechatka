@@ -21,6 +21,7 @@ type Order = {
   status: OrderStatus;
   createdAt: string;
   fileName: string | null;
+  diskPath: string | null;
   paperFormat: string;
   pageCount: number;
   copies: number;
@@ -251,9 +252,18 @@ export default function AdminOrders({
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
                       Файл и комментарий
                     </p>
-                    <p className="mt-2 break-all font-semibold">
-                      {order.fileName ?? "Файл пока не загружен"}
+                   <p className="mt-2 break-all font-semibold">
+                    {order.fileName ?? "Файл пока не загружен"}
                     </p>
+
+                    {order.diskPath && (
+                    <a
+                        href={`/api/admin/files/${order.id}`}
+                        className="mt-3 inline-flex rounded-xl bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800"
+                    >
+                        Скачать файл
+                    </a>
+                    )}
                     {order.customerComment && (
                       <p className="mt-2 rounded-xl bg-slate-50 p-3 text-sm leading-5 text-slate-600">
                         {order.customerComment}
