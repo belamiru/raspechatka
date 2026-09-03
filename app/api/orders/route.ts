@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { uploadOrderFile } from "@/lib/yandex-disk";
+import {
+  checkRateLimit,
+  getRequestId,
+  logAppError,
+  validatePrintFile,
+} from "@/lib/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
-
-const allowedMimeTypes = [
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-];
 
 let schemaReady: Promise<void> | null = null;
 
@@ -54,8 +54,6 @@ function ensureSchema() {
         );
       `);
 
-      // Эти поля добавятся в уже существующую таблицу,
-      // не затрагивая ранее созданный тестовый заказ.
       await db.query(`
         ALTER TABLE order_items
         ADD COLUMN IF NOT EXISTS disk_path TEXT;
@@ -70,7 +68,10 @@ function ensureSchema() {
         ALTER TABLE order_items
         ADD COLUMN IF NOT EXISTS mime_type VARCHAR(120);
       `);
-    })();
+    })().catch((error) => {
+      schemaReady = null;
+      throw error;
+    });
   }
 
   return schemaReady;
@@ -85,41 +86,89 @@ function createOrderNumber() {
 
 function textValue(formData: FormData, name: string) {
   const value = formData.get(name);
+
   return typeof value === "string" ? value.trim() : "";
 }
 
 export async function POST(request: Request) {
+  const requestId = getRequestId();
+
   try {
+    const rateLimit = await checkRateLimit(request, "create_order", {
+      shortWindowMinutes: 15,
+      shortWindowLimit: 8,
+      dailyLimit: 30,
+    });
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          error:
+            "Слишком много попыток оформления заказа. Попробуйте немного позже.",
+          requestId,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimit.retryAfterSeconds),
+          },
+        }
+      );
+    }
+
     await ensureSchema();
 
     const formData = await request.formData();
+    const website = textValue(formData, "website");
+
+    if (website) {
+      // Не сообщаем боту, что его запрос был отклонён.
+      return NextResponse.json({
+        success: true,
+        orderNumber: `R-${Date.now()}`,
+      });
+    }
 
     const file = formData.get("file");
 
     if (!(file instanceof File)) {
       return NextResponse.json(
-        { error: "Сначала выберите файл для печати." },
-        { status: 400 }
-      );
-    }
-
-    if (!allowedMimeTypes.includes(file.type)) {
-      return NextResponse.json(
-        { error: "Поддерживаются только PDF, JPG и PNG." },
+        {
+          error: "Сначала выберите файл для печати.",
+          requestId,
+        },
         { status: 400 }
       );
     }
 
     if (file.size < 1) {
       return NextResponse.json(
-        { error: "Выбранный файл пустой." },
+        {
+          error: "Выбранный файл пустой.",
+          requestId,
+        },
         { status: 400 }
       );
     }
 
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: "Размер файла не должен превышать 25 МБ." },
+        {
+          error: "Размер файла не должен превышать 25 МБ.",
+          requestId,
+        },
+        { status: 400 }
+      );
+    }
+
+    const fileValidation = await validatePrintFile(file);
+
+    if (!fileValidation.valid) {
+      return NextResponse.json(
+        {
+          error: fileValidation.error,
+          requestId,
+        },
         { status: 400 }
       );
     }
@@ -142,28 +191,44 @@ export async function POST(request: Request) {
 
     if (customerName.length < 2) {
       return NextResponse.json(
-        { error: "Укажите имя." },
+        {
+          error: "Укажите имя.",
+          requestId,
+        },
         { status: 400 }
       );
     }
 
     if (customerPhone.length < 6) {
       return NextResponse.json(
-        { error: "Укажите корректный номер телефона." },
+        {
+          error: "Укажите корректный номер телефона.",
+          requestId,
+        },
         { status: 400 }
       );
     }
 
-    if (!Number.isInteger(pageCount) || pageCount < 1 || pageCount > 10000) {
+    if (
+      !Number.isInteger(pageCount) ||
+      pageCount < 1 ||
+      pageCount > 10000
+    ) {
       return NextResponse.json(
-        { error: "Проверьте количество страниц." },
+        {
+          error: "Проверьте количество страниц.",
+          requestId,
+        },
         { status: 400 }
       );
     }
 
     if (!Number.isInteger(copies) || copies < 1 || copies > 1000) {
       return NextResponse.json(
-        { error: "Проверьте количество копий." },
+        {
+          error: "Проверьте количество копий.",
+          requestId,
+        },
         { status: 400 }
       );
     }
@@ -253,6 +318,7 @@ export async function POST(request: Request) {
       await client.query("COMMIT");
 
       return NextResponse.json({
+        success: true,
         orderNumber,
         totalPrice,
       });
@@ -263,12 +329,18 @@ export async function POST(request: Request) {
       client.release();
     }
   } catch (error) {
-    console.error("Ошибка создания заказа:", error);
+    await logAppError({
+      request,
+      requestId,
+      scope: "create_order",
+      error,
+    });
 
     return NextResponse.json(
       {
         error:
           "Не удалось загрузить файл и создать заказ. Попробуйте ещё раз.",
+        requestId,
       },
       { status: 500 }
     );

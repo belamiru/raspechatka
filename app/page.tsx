@@ -17,7 +17,7 @@ export default function Home() {
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerComment, setCustomerComment] = useState("");
-
+  const [website, setWebsite] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [createdOrderNumber, setCreatedOrderNumber] = useState("");
@@ -93,6 +93,7 @@ export default function Home() {
         formData.append("customerPhone", customerPhone);
         formData.append("customerEmail", customerEmail);
         formData.append("customerComment", customerComment);
+        formData.append("website", website);
 
         const response = await fetch("/api/orders", {
           method: "POST",
@@ -102,7 +103,14 @@ export default function Home() {
       const result = await response.json();
 
       if (!response.ok) {
-        setFormError(result.error ?? "Не удалось создать заказ.");
+        const requestNote = result.requestId
+          ? ` Номер ошибки: ${result.requestId}`
+          : "";
+
+        setFormError(
+          `${result.error ?? "Не удалось создать заказ."}${requestNote}`
+        );
+
         return;
       }
 
@@ -155,8 +163,23 @@ export default function Home() {
 
         <form
           onSubmit={handleSubmit}
-          className="grid gap-6 lg:grid-cols-[1.5fr_1fr]"
-        >
+          className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+          <div
+            aria-hidden="true"
+            className="absolute -left-[10000px] top-auto h-px w-px overflow-hidden"
+          >
+            <label>
+              Не заполняйте это поле
+              <input
+                type="text"
+                name="website"
+                value={website}
+                onChange={(event) => setWebsite(event.target.value)}
+                tabIndex={-1}
+                autoComplete="off"
+              />
+            </label>
+          </div>  
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
             <h2 className="text-2xl font-bold">1. Загрузите файл</h2>
             <p className="mt-2 text-sm leading-6 text-slate-500">
