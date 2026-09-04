@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { SiteFooter } from "@/components/site-footer";
+import { SiteFooter } from "@/app/components/site-footer";
 
 export const metadata: Metadata = {
   title: "Согласие на обработку персональных данных",
