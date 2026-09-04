@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { SiteFooter } from "@/app/components/site-footer";
+import { SiteFooter } from "@/components/site-footer";
 
 export const metadata: Metadata = {
   title: "Правила загрузки и хранения файлов",

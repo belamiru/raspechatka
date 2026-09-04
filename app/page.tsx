@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, FormEvent, useMemo, useState } from "react";
+import { SiteFooter } from "@/components/site-footer";
 
 type PrintFormat = "A4" | "A3";
 type PrintSide = "one-sided" | "two-sided";
@@ -18,6 +19,11 @@ export default function Home() {
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerComment, setCustomerComment] = useState("");
   const [website, setWebsite] = useState("");
+
+  const [personalDataConsent, setPersonalDataConsent] = useState(false);
+  const [offerAccepted, setOfferAccepted] = useState(false);
+  const [fileRulesAccepted, setFileRulesAccepted] = useState(false);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [createdOrderNumber, setCreatedOrderNumber] = useState("");
@@ -44,8 +50,8 @@ export default function Home() {
     }
 
     if (file.size > 25 * 1024 * 1024) {
-     alert("Размер файла не должен превышать 25 МБ.");
-     return;
+      alert("Размер файла не должен превышать 25 МБ.");
+      return;
     }
 
     setFileName(file.name);
@@ -69,36 +75,55 @@ export default function Home() {
     setFormError("");
     setCreatedOrderNumber("");
 
-    if (!fileName) {
+    if (!selectedFile) {
       setFormError("Сначала выберите файл для печати.");
+      return;
+    }
+
+    if (!personalDataConsent) {
+      setFormError(
+        "Для оформления заказа необходимо согласие на обработку персональных данных."
+      );
+      return;
+    }
+
+    if (!offerAccepted || !fileRulesAccepted) {
+      setFormError(
+        "Для оформления заказа необходимо принять оферту и правила загрузки файлов."
+      );
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      if (!selectedFile) {
-          setFormError("Сначала выберите файл для печати.");
-          return;
-        }
+      const formData = new FormData();
 
-        const formData = new FormData();
+      formData.append("file", selectedFile);
+      formData.append("paperFormat", format);
+      formData.append("pageCount", String(pages));
+      formData.append("copies", String(copies));
+      formData.append("printSides", sides);
+      formData.append("customerName", customerName);
+      formData.append("customerPhone", customerPhone);
+      formData.append("customerEmail", customerEmail);
+      formData.append("customerComment", customerComment);
+      formData.append("website", website);
 
-        formData.append("file", selectedFile);
-        formData.append("paperFormat", format);
-        formData.append("pageCount", String(pages));
-        formData.append("copies", String(copies));
-        formData.append("printSides", sides);
-        formData.append("customerName", customerName);
-        formData.append("customerPhone", customerPhone);
-        formData.append("customerEmail", customerEmail);
-        formData.append("customerComment", customerComment);
-        formData.append("website", website);
+      formData.append(
+        "personalDataConsent",
+        personalDataConsent ? "true" : "false"
+      );
+      formData.append("offerAccepted", offerAccepted ? "true" : "false");
+      formData.append(
+        "fileRulesAccepted",
+        fileRulesAccepted ? "true" : "false"
+      );
 
-        const response = await fetch("/api/orders", {
-          method: "POST",
-          body: formData,
-        });
+      const response = await fetch("/api/orders", {
+        method: "POST",
+        body: formData,
+      });
 
       const result = await response.json();
 
@@ -128,7 +153,10 @@ export default function Home() {
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
-          <a href="/" className="text-xl font-black tracking-tight text-blue-700">
+          <a
+            href="/"
+            className="text-xl font-black tracking-tight text-blue-700"
+          >
             РАСПЕЧАТКА
           </a>
 
@@ -156,14 +184,15 @@ export default function Home() {
           </h1>
 
           <p className="mt-5 text-lg leading-8 text-slate-600">
-            Чёрно-белая печать форматов A4 и A3. Загрузите документ,
-            выберите параметры, узнайте стоимость и оформите заказ.
+            Чёрно-белая печать форматов A4 и A3. Загрузите документ, выберите
+            параметры, узнайте предварительную стоимость и оформите заказ.
           </p>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+          className="grid gap-6 lg:grid-cols-[1.5fr_1fr]"
+        >
           <div
             aria-hidden="true"
             className="absolute -left-[10000px] top-auto h-px w-px overflow-hidden"
@@ -179,9 +208,11 @@ export default function Home() {
                 autoComplete="off"
               />
             </label>
-          </div>  
+          </div>
+
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
             <h2 className="text-2xl font-bold">1. Загрузите файл</h2>
+
             <p className="mt-2 text-sm leading-6 text-slate-500">
               Поддерживаются PDF, JPG и PNG. Максимальный размер одного файла —
               25 МБ.
@@ -242,6 +273,7 @@ export default function Home() {
                   <span className="mb-2 block text-sm font-semibold">
                     Формат бумаги
                   </span>
+
                   <select
                     value={format}
                     onChange={(event) =>
@@ -258,6 +290,7 @@ export default function Home() {
                   <span className="mb-2 block text-sm font-semibold">
                     Количество копий
                   </span>
+
                   <input
                     type="number"
                     min="1"
@@ -274,6 +307,7 @@ export default function Home() {
                   <span className="mb-2 block text-sm font-semibold">
                     Количество страниц
                   </span>
+
                   <input
                     type="number"
                     min="1"
@@ -290,6 +324,7 @@ export default function Home() {
                   <span className="mb-2 block text-sm font-semibold">
                     Стороны печати
                   </span>
+
                   <select
                     value={sides}
                     onChange={(event) =>
@@ -312,6 +347,7 @@ export default function Home() {
                   <span className="mb-2 block text-sm font-semibold">
                     Ваше имя *
                   </span>
+
                   <input
                     required
                     value={customerName}
@@ -325,6 +361,7 @@ export default function Home() {
                   <span className="mb-2 block text-sm font-semibold">
                     Телефон *
                   </span>
+
                   <input
                     required
                     type="tel"
@@ -337,8 +374,12 @@ export default function Home() {
 
                 <label className="block sm:col-span-2">
                   <span className="mb-2 block text-sm font-semibold">
-                    Email <span className="font-normal text-slate-400">(необязательно)</span>
+                    Email{" "}
+                    <span className="font-normal text-slate-400">
+                      (необязательно)
+                    </span>
                   </span>
+
                   <input
                     type="email"
                     value={customerEmail}
@@ -352,15 +393,112 @@ export default function Home() {
                   <span className="mb-2 block text-sm font-semibold">
                     Комментарий к заказу
                   </span>
+
                   <textarea
                     rows={3}
                     value={customerComment}
-                    onChange={(event) => setCustomerComment(event.target.value)}
+                    onChange={(event) =>
+                      setCustomerComment(event.target.value)
+                    }
                     placeholder="Например: позвоните, когда заказ будет готов."
                     className="w-full resize-y rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
                   />
                 </label>
               </div>
+            </div>
+
+            <div className="mt-8 border-t border-slate-100 pt-8">
+              <h2 className="text-2xl font-bold">4. Подтвердите условия</h2>
+
+              <div className="mt-5 space-y-4">
+                <label className="flex cursor-pointer items-start gap-3 text-sm leading-6 text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={personalDataConsent}
+                    onChange={(event) =>
+                      setPersonalDataConsent(event.target.checked)
+                    }
+                    className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                  />
+
+                  <span>
+                    Я даю согласие на обработку персональных данных в
+                    соответствии с{" "}
+                    <a
+                      href="/personal-data-consent"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-blue-700 underline"
+                    >
+                      Согласием
+                    </a>{" "}
+                    и{" "}
+                    <a
+                      href="/privacy"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-blue-700 underline"
+                    >
+                      Политикой обработки персональных данных
+                    </a>
+                    .
+                  </span>
+                </label>
+
+                <label className="flex cursor-pointer items-start gap-3 text-sm leading-6 text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={offerAccepted}
+                    onChange={(event) =>
+                      setOfferAccepted(event.target.checked)
+                    }
+                    className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                  />
+
+                  <span>
+                    Я принимаю условия{" "}
+                    <a
+                      href="/offer"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-blue-700 underline"
+                    >
+                      Публичной оферты
+                    </a>
+                    .
+                  </span>
+                </label>
+
+                <label className="flex cursor-pointer items-start gap-3 text-sm leading-6 text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={fileRulesAccepted}
+                    onChange={(event) =>
+                      setFileRulesAccepted(event.target.checked)
+                    }
+                    className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
+                  />
+
+                  <span>
+                    Я ознакомился(ась) и согласен(на) с{" "}
+                    <a
+                      href="/file-rules"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-blue-700 underline"
+                    >
+                      Правилами загрузки и хранения файлов
+                    </a>
+                    .
+                  </span>
+                </label>
+              </div>
+
+              <p className="mt-4 text-xs leading-5 text-slate-500">
+                Предварительная стоимость может измениться после проверки файла
+                сотрудником. Печать по изменённой стоимости начнётся только
+                после вашего подтверждения.
+              </p>
             </div>
           </section>
 
@@ -379,14 +517,17 @@ export default function Home() {
                 <span className="text-slate-400">Формат</span>
                 <span className="font-semibold">{format}</span>
               </div>
+
               <div className="flex justify-between gap-4">
                 <span className="text-slate-400">Страниц</span>
                 <span className="font-semibold">{pages}</span>
               </div>
+
               <div className="flex justify-between gap-4">
                 <span className="text-slate-400">Копий</span>
                 <span className="font-semibold">{copies}</span>
               </div>
+
               <div className="flex justify-between gap-4">
                 <span className="text-slate-400">Печать</span>
                 <span className="text-right font-semibold">
@@ -395,6 +536,7 @@ export default function Home() {
                     : "Двусторонняя"}
                 </span>
               </div>
+
               <div className="flex justify-between gap-4">
                 <span className="text-slate-400">Получение</span>
                 <span className="text-right font-semibold">Самовывоз</span>
@@ -402,7 +544,9 @@ export default function Home() {
             </div>
 
             <div className="mt-6 flex items-end justify-between gap-4">
-              <span className="text-slate-300">Предварительная стоимость</span>
+              <span className="text-slate-300">
+                Предварительная стоимость
+              </span>
               <span className="text-3xl font-black">{price} ₽</span>
             </div>
 
@@ -417,7 +561,11 @@ export default function Home() {
                 <p className="text-sm font-bold text-emerald-200">
                   Заказ успешно создан
                 </p>
-                <p className="mt-2 text-xl font-black">{createdOrderNumber}</p>
+
+                <p className="mt-2 text-xl font-black">
+                  {createdOrderNumber}
+                </p>
+
                 <p className="mt-2 text-sm leading-5 text-emerald-50">
                   Мы свяжемся с вами для подтверждения заказа.
                 </p>
@@ -433,11 +581,13 @@ export default function Home() {
             </button>
 
             <p className="mt-4 text-center text-xs leading-5 text-slate-400">
-              Самовывоз: Воронеж, ул. Шукшина, 21, 2 этаж, офис № 8.
+              Самовывоз: Воронеж, ул. Шукшина, д. 21, офис 8.
             </p>
           </aside>
         </form>
       </section>
+
+      <SiteFooter />
     </main>
   );
 }
