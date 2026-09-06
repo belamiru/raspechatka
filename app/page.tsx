@@ -2,6 +2,7 @@
 
 import { ChangeEvent, DragEvent, FormEvent, useMemo, useState } from "react";
 import { SiteFooter } from "@/components/site-footer";
+import { reachMetrikaGoal } from "@/lib/metrika";
 
 type PrintFormat = "A4" | "A3";
 type PrintSide = "one-sided" | "two-sided";
@@ -58,6 +59,7 @@ export default function Home() {
     setSelectedFile(file);
     setCreatedOrderNumber("");
     setFormError("");
+    reachMetrikaGoal("file_selected");
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -93,7 +95,7 @@ export default function Home() {
       );
       return;
     }
-
+    reachMetrikaGoal("order_form_submit");
     setIsSubmitting(true);
 
     try {
@@ -140,6 +142,7 @@ export default function Home() {
       }
 
       setCreatedOrderNumber(result.orderNumber);
+      reachMetrikaGoal("order_created");
     } catch {
       setFormError(
         "Не удалось связаться с сервером. Проверьте интернет и повторите попытку."
