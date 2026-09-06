@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { uploadOrderFile } from "@/lib/yandex-disk";
+import { getPrintPrice } from "@/lib/pricing";
 import {
   checkRateLimit,
   getRequestId,
@@ -233,11 +234,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const unitPrice = paperFormat === "A3" ? 20 : 10;
-    const sideMultiplier = printSides === "two-sided" ? 1.5 : 1;
-    const totalPrice = Math.round(
-      unitPrice * pageCount * copies * sideMultiplier
-    );
+        const pricing = getPrintPrice({
+        paperFormat,
+        printSides,
+        pageCount,
+        copies,
+      });
+
+      const unitPrice = pricing.baseUnitPrice;
+      const sideMultiplier = pricing.priceMultiplier;
+      const totalPrice = pricing.totalPrice;
 
     const orderNumber = createOrderNumber();
 

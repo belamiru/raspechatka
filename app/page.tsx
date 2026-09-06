@@ -3,6 +3,7 @@
 import { ChangeEvent, DragEvent, FormEvent, useMemo, useState } from "react";
 import { SiteFooter } from "@/components/site-footer";
 import { reachMetrikaGoal } from "@/lib/metrika";
+import { getPrintPrice } from "@/lib/pricing";
 
 type PrintFormat = "A4" | "A3";
 type PrintSide = "one-sided" | "two-sided";
@@ -29,12 +30,18 @@ export default function Home() {
   const [formError, setFormError] = useState("");
   const [createdOrderNumber, setCreatedOrderNumber] = useState("");
 
-    const price = useMemo(() => {
-    const pricePerPage = format === "A4" ? 20 : 40;
-    const sideMultiplier = sides === "two-sided" ? 2 : 1;
+    const pricing = useMemo(
+  () =>
+    getPrintPrice({
+      paperFormat: format,
+      printSides: sides,
+      pageCount: pages,
+      copies,
+    }),
+  [format, copies, sides, pages]
+);
 
-    return Math.round(pricePerPage * pages * copies * sideMultiplier);
-  }, [format, copies, sides, pages]);
+const price = pricing.totalPrice;
 
   function selectFile(file?: File) {
     if (!file) return;
@@ -353,8 +360,8 @@ export default function Home() {
                     }
                     className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
                   >
-                    <option value="A4">A4 — 20 ₽ за страницу</option>
-                    <option value="A3">A3 — 40 ₽ за страницу</option>
+                    <option value="A4">A4 — от 8 до 20 ₽ за страницу</option>
+                    <option value="A3">A3 — от 16 до 40 ₽ за страницу</option>
                   </select>
                 </label>
 
@@ -408,6 +415,76 @@ export default function Home() {
                     <option value="two-sided">Двусторонняя (× 2)</option>
                   </select>
                 </label>
+                            </div>
+              <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-sm font-bold text-slate-800">
+                    Объёмные скидки на чёрно-белую печать
+                  </p>
+
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Цена зависит от общего количества страниц во всех копиях.
+                    Для A3 цена ×2, для двусторонней печати цена ×2.
+                  </p>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-left text-xs sm:text-sm">
+                    <thead className="bg-white text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold">Тираж</th>
+                        <th className="px-4 py-3 font-semibold">
+                          A4 / 1 сторона
+                        </th>
+                        <th className="px-4 py-3 font-semibold">
+                          A3 / 1 сторона
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      <tr>
+                        <td className="px-4 py-3">1–10</td>
+                        <td className="px-4 py-3">20 ₽</td>
+                        <td className="px-4 py-3">40 ₽</td>
+                      </tr>
+
+                      <tr>
+                        <td className="px-4 py-3">11–25</td>
+                        <td className="px-4 py-3">18 ₽</td>
+                        <td className="px-4 py-3">36 ₽</td>
+                      </tr>
+
+                      <tr>
+                        <td className="px-4 py-3">26–75</td>
+                        <td className="px-4 py-3">16 ₽</td>
+                        <td className="px-4 py-3">32 ₽</td>
+                      </tr>
+
+                      <tr>
+                        <td className="px-4 py-3">76–200</td>
+                        <td className="px-4 py-3">14 ₽</td>
+                        <td className="px-4 py-3">28 ₽</td>
+                      </tr>
+
+                      <tr>
+                        <td className="px-4 py-3">201–500</td>
+                        <td className="px-4 py-3">11 ₽</td>
+                        <td className="px-4 py-3">22 ₽</td>
+                      </tr>
+
+                      <tr>
+                        <td className="px-4 py-3">От 501</td>
+                        <td className="px-4 py-3 font-bold text-blue-700">
+                          8 ₽
+                        </td>
+                        <td className="px-4 py-3 font-bold text-blue-700">
+                          16 ₽
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
@@ -615,12 +692,34 @@ export default function Home() {
               </div>
             </div>
 
+            <div className="mt-6 rounded-2xl bg-white/10 p-4">
+              <div className="flex justify-between gap-4 text-sm">
+                <span className="text-slate-300">Общий тираж</span>
+                <span className="font-semibold">{pricing.quantity} стр.</span>
+              </div>
+
+              <div className="mt-3 flex justify-between gap-4 text-sm">
+                <span className="text-slate-300">Ступень цены</span>
+                <span className="text-right font-semibold">{pricing.tier.label}</span>
+              </div>
+
+              <div className="mt-3 flex justify-between gap-4 text-sm">
+                <span className="text-slate-300">Цена за страницу</span>
+                <span className="font-semibold">{pricing.effectiveUnitPrice} ₽</span>
+              </div>
+            </div>
+
             <div className="mt-6 flex items-end justify-between gap-4">
               <span className="text-slate-300">
                 Предварительная стоимость
               </span>
               <span className="text-3xl font-black">{price} ₽</span>
             </div>
+
+            <p className="mt-3 text-xs leading-5 text-slate-400">
+              Скидка применяется ко всему тиражу при достижении соответствующего
+              количества страниц.
+            </p>
 
             {formError && (
               <p className="mt-5 rounded-xl bg-red-500/20 p-3 text-sm font-medium text-red-100">
