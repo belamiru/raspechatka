@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { BreadcrumbStructuredData } from "@/components/structured-data";
 import {
   ServiceCard,
   ServiceStatusNotice,
@@ -57,6 +58,12 @@ const services = [
 export default function ServicesPage() {
   return (
     <main className="flex-1 bg-zinc-50">
+      <BreadcrumbStructuredData
+        items={[
+          { name: "Главная", path: "/" },
+          { name: "Услуги", path: "/services" },
+        ]}
+      />
       <section className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
         <nav aria-label="Хлебные крошки" className="mb-6 text-sm text-zinc-500">
           <Link
