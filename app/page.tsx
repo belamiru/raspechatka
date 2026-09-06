@@ -28,9 +28,9 @@ export default function Home() {
   const [formError, setFormError] = useState("");
   const [createdOrderNumber, setCreatedOrderNumber] = useState("");
 
-  const price = useMemo(() => {
-    const pricePerPage = format === "A4" ? 10 : 20;
-    const sideMultiplier = sides === "two-sided" ? 1.5 : 1;
+    const price = useMemo(() => {
+    const pricePerPage = format === "A4" ? 20 : 40;
+    const sideMultiplier = sides === "two-sided" ? 2 : 1;
 
     return Math.round(pricePerPage * pages * copies * sideMultiplier);
   }, [format, copies, sides, pages]);
@@ -160,9 +160,18 @@ export default function Home() {
             РАСПЕЧАТКА
           </a>
 
-          <div className="hidden text-sm text-slate-500 sm:block">
-            Чёрно-белая печать документов в Воронеже
-          </div>
+         <nav className="hidden items-center gap-5 text-sm sm:flex">
+  <a
+    href="/services"
+    className="font-semibold text-slate-600 transition hover:text-blue-700"
+  >
+    Услуги
+  </a>
+
+  <span className="text-slate-500">
+    Чёрно-белая печать документов в Воронеже
+  </span>
+</nav>
 
           <a
             href="#order"
@@ -188,7 +197,67 @@ export default function Home() {
             параметры, узнайте предварительную стоимость и оформите заказ.
           </p>
         </div>
+                <section
+          aria-labelledby="other-services-heading"
+          className="mb-10 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
+        >
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-sm font-bold uppercase tracking-wider text-blue-700">
+                Типография Copyleft
+              </p>
 
+              <h2
+                id="other-services-heading"
+                className="mt-2 text-2xl font-bold"
+              >
+                Другие услуги печати
+              </h2>
+
+              <p className="mt-2 max-w-2xl leading-7 text-slate-600">
+                Цветная печать, фотопечать, ламинация и переплёт уже доступны
+                в типографии. Онлайн-калькуляторы для этих услуг готовятся.
+              </p>
+            </div>
+
+            <a
+              href="/services"
+              className="shrink-0 font-semibold text-blue-700 underline underline-offset-4 hover:text-blue-800"
+            >
+              Все услуги →
+            </a>
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <a
+              href="/color-printing"
+              className="rounded-2xl bg-slate-50 p-4 font-semibold text-slate-800 transition hover:bg-blue-50 hover:text-blue-700"
+            >
+              Цветная печать
+            </a>
+
+            <a
+              href="/photo-printing"
+              className="rounded-2xl bg-slate-50 p-4 font-semibold text-slate-800 transition hover:bg-blue-50 hover:text-blue-700"
+            >
+              Фотопечать
+            </a>
+
+            <a
+              href="/lamination"
+              className="rounded-2xl bg-slate-50 p-4 font-semibold text-slate-800 transition hover:bg-blue-50 hover:text-blue-700"
+            >
+              Ламинация
+            </a>
+
+            <a
+              href="/metal-binding"
+              className="rounded-2xl bg-slate-50 p-4 font-semibold text-slate-800 transition hover:bg-blue-50 hover:text-blue-700"
+            >
+              Переплёт документов
+            </a>
+          </div>
+        </section>
         <form
           onSubmit={handleSubmit}
           className="grid gap-6 lg:grid-cols-[1.5fr_1fr]"
@@ -281,8 +350,8 @@ export default function Home() {
                     }
                     className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
                   >
-                    <option value="A4">A4 — 10 ₽ за страницу</option>
-                    <option value="A3">A3 — 20 ₽ за страницу</option>
+                    <option value="A4">A4 — 20 ₽ за страницу</option>
+                    <option value="A3">A3 — 40 ₽ за страницу</option>
                   </select>
                 </label>
 
@@ -333,7 +402,7 @@ export default function Home() {
                     className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
                   >
                     <option value="one-sided">Односторонняя</option>
-                    <option value="two-sided">Двусторонняя (× 1,5)</option>
+                    <option value="two-sided">Двусторонняя (× 2)</option>
                   </select>
                 </label>
               </div>

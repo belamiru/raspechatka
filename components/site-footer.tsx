@@ -1,15 +1,61 @@
+import Link from "next/link";
+
 export function SiteFooter() {
   return (
     <footer className="border-t border-slate-200 bg-white">
-      <div className="mx-auto grid max-w-6xl gap-8 px-5 py-10 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mx-auto grid max-w-6xl gap-8 px-5 py-10 sm:grid-cols-2 lg:grid-cols-4">
         <div>
-          <p className="text-lg font-black tracking-tight text-blue-700">
+          <Link
+            href="/"
+            className="text-lg font-black tracking-tight text-blue-700"
+          >
             РАСПЕЧАТКА
-          </p>
+          </Link>
 
           <p className="mt-3 text-sm leading-6 text-slate-600">
-            Чёрно-белая печать документов A4 и A3 в Воронеже.
+            Печать документов, фотопечать, ламинация и переплёт в Воронеже.
           </p>
+        </div>
+
+        <div>
+          <p className="text-sm font-bold text-slate-900">Услуги</p>
+
+          <nav className="mt-3 space-y-2 text-sm">
+            <Link
+              href="/services"
+              className="block text-slate-600 hover:text-blue-700"
+            >
+              Все услуги
+            </Link>
+
+            <Link
+              href="/color-printing"
+              className="block text-slate-600 hover:text-blue-700"
+            >
+              Цветная печать
+            </Link>
+
+            <Link
+              href="/photo-printing"
+              className="block text-slate-600 hover:text-blue-700"
+            >
+              Фотопечать
+            </Link>
+
+            <Link
+              href="/lamination"
+              className="block text-slate-600 hover:text-blue-700"
+            >
+              Ламинация
+            </Link>
+
+            <Link
+              href="/metal-binding"
+              className="block text-slate-600 hover:text-blue-700"
+            >
+              Переплёт документов
+            </Link>
+          </nav>
         </div>
 
         <div>
@@ -17,18 +63,21 @@ export function SiteFooter() {
 
           <div className="mt-3 space-y-2 text-sm text-slate-600">
             <p>Воронеж, ул. Шукшина, д. 21, офис 8</p>
+
             <a
               href="tel:+74732066177"
               className="block hover:text-blue-700"
             >
               8 (473) 206-61-77
             </a>
+
             <a
               href="mailto:zakaz@listovok.ru"
               className="block hover:text-blue-700"
             >
               zakaz@listovok.ru
             </a>
+
             <p>Пн–Пт: 10:00–18:30</p>
           </div>
         </div>
@@ -37,33 +86,33 @@ export function SiteFooter() {
           <p className="text-sm font-bold text-slate-900">Документы</p>
 
           <nav className="mt-3 space-y-2 text-sm">
-            <a
+            <Link
               href="/privacy"
               className="block text-slate-600 hover:text-blue-700"
             >
               Политика обработки персональных данных
-            </a>
+            </Link>
 
-            <a
+            <Link
               href="/personal-data-consent"
               className="block text-slate-600 hover:text-blue-700"
             >
               Согласие на обработку персональных данных
-            </a>
+            </Link>
 
-            <a
+            <Link
               href="/offer"
               className="block text-slate-600 hover:text-blue-700"
             >
               Публичная оферта
-            </a>
+            </Link>
 
-            <a
+            <Link
               href="/file-rules"
               className="block text-slate-600 hover:text-blue-700"
             >
               Правила загрузки и хранения файлов
-            </a>
+            </Link>
           </nav>
         </div>
       </div>
