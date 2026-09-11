@@ -15,6 +15,7 @@ export default function Home() {
   const [copies, setCopies] = useState(1);
   const [sides, setSides] = useState<PrintSide>("one-sided");
   const [pages, setPages] = useState(1);
+  const [isAnalyzingFile, setIsAnalyzingFile] = useState(false);
 
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -43,40 +44,88 @@ export default function Home() {
 
 const price = pricing.totalPrice;
 
-  function selectFile(file?: File) {
-    if (!file) return;
+async function selectFile(file?: File) {
+  if (!file) return;
 
-    const allowedTypes = [
-      "application/pdf",
-      "image/jpeg",
-      "image/png",
-    ];
+  const allowedTypes = [
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+  ];
 
-    if (!allowedTypes.includes(file.type)) {
-      alert("Пока поддерживаются только PDF, JPG и PNG.");
-      return;
-    }
-
-    if (file.size > 25 * 1024 * 1024) {
-      alert("Размер файла не должен превышать 25 МБ.");
-      return;
-    }
-
-    setFileName(file.name);
-    setSelectedFile(file);
-    setCreatedOrderNumber("");
-    setFormError("");
-    reachMetrikaGoal("file_selected");
+  if (!allowedTypes.includes(file.type)) {
+    alert("Пока поддерживаются только PDF, JPG и PNG.");
+    return;
   }
+
+  if (file.size > 25 * 1024 * 1024) {
+    alert("Размер файла не должен превышать 25 МБ.");
+    return;
+  }
+
+  setFileName(file.name);
+  setSelectedFile(file);
+  setCreatedOrderNumber("");
+  setFormError("");
+  reachMetrikaGoal("file_selected");
+
+  // Пока автоматически считаем страницы только в PDF.
+  if (file.type !== "application/pdf") {
+    return;
+  }
+
+  setIsAnalyzingFile(true);
+
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch("/api/files/analyze", {
+      method: "POST",
+      body: formData,
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.error ?? "Не удалось проверить PDF-файл."
+      );
+    }
+
+    if (
+      !Number.isInteger(result.pageCount) ||
+      result.pageCount < 1 ||
+      result.pageCount > 10000
+    ) {
+      throw new Error(
+        "Сервис вернул некорректное количество страниц."
+      );
+    }
+
+    setPages(result.pageCount);
+  } catch (error) {
+    setFileName("");
+    setSelectedFile(null);
+
+    setFormError(
+      error instanceof Error
+        ? error.message
+        : "Не удалось проверить PDF-файл. Попробуйте ещё раз."
+    );
+  } finally {
+    setIsAnalyzingFile(false);
+  }
+}
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    selectFile(event.target.files?.[0]);
-  }
+  void selectFile(event.target.files?.[0]);
+}
 
-  function handleDrop(event: DragEvent<HTMLLabelElement>) {
-    event.preventDefault();
-    selectFile(event.dataTransfer.files?.[0]);
-  }
+function handleDrop(event: DragEvent<HTMLLabelElement>) {
+  event.preventDefault();
+  void selectFile(event.dataTransfer.files?.[0]);
+}
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -86,6 +135,10 @@ const price = pricing.totalPrice;
 
     if (!selectedFile) {
       setFormError("Сначала выберите файл для печати.");
+      return;
+    }
+    if (isAnalyzingFile) {
+      setFormError("Подождите: PDF-файл ещё проверяется.");
       return;
     }
 
@@ -319,7 +372,11 @@ const price = pricing.totalPrice;
                 className="hidden"
               />
             </label>
-
+            {isAnalyzingFile && (
+              <p className="mt-4 text-sm font-medium text-blue-700">
+                Проверяем количество страниц в PDF…
+              </p>
+            )}
             {fileName && (
               <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
                 <div className="min-w-0">
@@ -745,7 +802,7 @@ const price = pricing.totalPrice;
 
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isAnalyzingFile}
               className="mt-7 w-full rounded-xl bg-blue-600 px-5 py-4 font-bold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSubmitting ? "Создаём заказ..." : "Оформить заказ"}
