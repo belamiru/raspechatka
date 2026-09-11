@@ -75,9 +75,9 @@ export async function analyzePrintFile(file: File): Promise<FileAnalysis> {
       cache: "no-store",
     });
 
-    if (!response.ok) {
+   if (!response.ok) {
       throw new Error(
-        "Не удалось автоматически подготовить файл к печати. Его можно будет отправить на ручную проверку."
+        `Сервис подготовки файлов временно вернул ошибку HTTP ${response.status}.`
       );
     }
 
