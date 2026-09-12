@@ -76,13 +76,17 @@ export async function GET(
     const fileName = makeDownloadFileName(file.file_name ?? "document");
     const encodedFileName = encodeURIComponent(fileName);
 
+    // Обычный filename должен содержать только ASCII.
+    // Реальное имя, включая кириллицу, браузеры получают из filename*.
+    const fallbackFileName = "print-file.pdf";
+
     return new Response(diskResponse.body, {
       headers: {
         "Content-Type":
           file.mime_type ??
           diskResponse.headers.get("content-type") ??
           "application/octet-stream",
-        "Content-Disposition": `attachment; filename="${fileName}"; filename*=UTF-8''${encodedFileName}`,
+        "Content-Disposition": `attachment; filename="${fallbackFileName}"; filename*=UTF-8''${encodedFileName}`,
         "Cache-Control": "private, no-store, max-age=0",
       },
     });
