@@ -16,6 +16,8 @@ export default function Home() {
   const [sides, setSides] = useState<PrintSide>("one-sided");
   const [pages, setPages] = useState(1);
   const [isAnalyzingFile, setIsAnalyzingFile] = useState(false);
+  const [preparedPdfUrl, setPreparedPdfUrl] = useState("");
+  const [preparedPdfName, setPreparedPdfName] = useState("");
 
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -47,34 +49,36 @@ const price = pricing.totalPrice;
 async function selectFile(file?: File) {
   if (!file) return;
 
-  const allowedTypes = [
-    "application/pdf",
-    "image/jpeg",
-    "image/png",
-  ];
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  const supportedExtensions = ["pdf", "docx", "xlsx", "pptx"];
 
-  if (!allowedTypes.includes(file.type)) {
-    alert("Пока поддерживаются только PDF, JPG и PNG.");
+  if (!extension || !supportedExtensions.includes(extension)) {
+    alert("Поддерживаются файлы PDF, DOCX, XLSX и PPTX.");
     return;
   }
 
-  if (file.size > 25 * 1024 * 1024) {
-    alert("Размер файла не должен превышать 25 МБ.");
+  if (file.size < 1) {
+    alert("Выбранный файл пустой.");
     return;
+  }
+
+  if (file.size > 50 * 1024 * 1024) {
+    alert("Размер файла не должен превышать 50 МБ.");
+    return;
+  }
+
+  if (preparedPdfUrl) {
+    URL.revokeObjectURL(preparedPdfUrl);
   }
 
   setFileName(file.name);
   setSelectedFile(file);
+  setPreparedPdfUrl("");
+  setPreparedPdfName("");
   setCreatedOrderNumber("");
   setFormError("");
-  reachMetrikaGoal("file_selected");
-
-  // Пока автоматически считаем страницы только в PDF.
-  if (file.type !== "application/pdf") {
-    return;
-  }
-
   setIsAnalyzingFile(true);
+  reachMetrikaGoal("file_selected");
 
   try {
     const formData = new FormData();
@@ -85,33 +89,52 @@ async function selectFile(file?: File) {
       body: formData,
     });
 
-    const result = await response.json();
-
     if (!response.ok) {
+      const result = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+
       throw new Error(
-        result.error ?? "Не удалось проверить PDF-файл."
+        result?.error ?? "Не удалось подготовить файл для печати."
       );
     }
 
+    const pageCount = Number(response.headers.get("x-page-count"));
+
     if (
-      !Number.isInteger(result.pageCount) ||
-      result.pageCount < 1 ||
-      result.pageCount > 10000
+      !Number.isInteger(pageCount) ||
+      pageCount < 1 ||
+      pageCount > 10000
     ) {
       throw new Error(
         "Сервис вернул некорректное количество страниц."
       );
     }
 
-    setPages(result.pageCount);
+    const pdfBlob = await response.blob();
+
+    if (pdfBlob.size < 5 || pdfBlob.type !== "application/pdf") {
+      throw new Error(
+        "Сервис подготовки файлов вернул результат в некорректном формате."
+      );
+    }
+
+    const sourceNameWithoutExtension =
+      file.name.replace(/\.[^.]+$/, "") || "document";
+
+    setPages(pageCount);
+    setPreparedPdfName(`${sourceNameWithoutExtension}.pdf`);
+    setPreparedPdfUrl(URL.createObjectURL(pdfBlob));
   } catch (error) {
     setFileName("");
     setSelectedFile(null);
+    setPreparedPdfUrl("");
+    setPreparedPdfName("");
 
     setFormError(
       error instanceof Error
         ? error.message
-        : "Не удалось проверить PDF-файл. Попробуйте ещё раз."
+        : "Не удалось подготовить файл. Попробуйте ещё раз."
     );
   } finally {
     setIsAnalyzingFile(false);
@@ -346,8 +369,8 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
             <h2 className="text-2xl font-bold">1. Загрузите файл</h2>
 
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              Поддерживаются PDF, JPG и PNG. Максимальный размер одного файла —
-              25 МБ.
+              Поддерживаются PDF, DOCX, XLSX и PPTX. Максимальный размер одного файла —
+                50 МБ.
             </p>
 
             <label
@@ -367,18 +390,19 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
 
               <input
                 type="file"
-                accept=".pdf,.jpg,.jpeg,.png"
+                accept=".pdf,.docx,.xlsx,.pptx"
                 onChange={handleFileChange}
                 className="hidden"
               />
             </label>
-            {isAnalyzingFile && (
+           {isAnalyzingFile && (
               <p className="mt-4 text-sm font-medium text-blue-700">
-                Проверяем количество страниц в PDF…
+                Подготавливаем PDF для печати и проверяем количество страниц…
               </p>
             )}
             {fileName && (
-              <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+              <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
                     Файл выбран
@@ -386,20 +410,49 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
                   <p className="mt-1 truncate font-semibold text-slate-800">
                     {fileName}
                   </p>
+
+                  {preparedPdfName && (
+                    <p className="mt-1 text-sm text-emerald-800">
+                      Подготовлен PDF для печати: {preparedPdfName}
+                    </p>
+                  )}
                 </div>
 
                 <button
                   type="button"
                   onClick={() => {
+                    if (preparedPdfUrl) {
+                      URL.revokeObjectURL(preparedPdfUrl);
+                    }
+
                     setFileName("");
                     setSelectedFile(null);
+                    setPreparedPdfUrl("");
+                    setPreparedPdfName("");
+                    setPages(1);
+                    setFormError("");
                   }}
                   className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-100"
                 >
                   Удалить
                 </button>
               </div>
-            )}
+
+              {preparedPdfUrl && (
+                <div className="mt-4 border-t border-emerald-200 pt-4">
+                  <p className="mb-3 text-sm font-semibold text-slate-800">
+                    Проверьте результат перед оформлением заказа
+                  </p>
+
+                  <iframe
+                    src={preparedPdfUrl}
+                    title="Предпросмотр подготовленного PDF"
+                    className="h-[520px] w-full rounded-xl border border-slate-300 bg-white"
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
             <div className="mt-8 border-t border-slate-100 pt-8">
               <h2 className="text-2xl font-bold">2. Настройте печать</h2>
@@ -446,13 +499,10 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
 
                   <input
                     type="number"
-                    min="1"
-                    max="10000"
                     value={pages}
-                    onChange={(event) =>
-                      setPages(Math.max(1, Number(event.target.value)))
-                    }
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                    readOnly
+                    aria-readonly="true"
+                    className="w-full cursor-not-allowed rounded-xl border border-slate-300 bg-slate-100 px-4 py-3 text-slate-700 outline-none"
                   />
                 </label>
 

@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import {
   analyzePrintFile,
   validateSupportedFile,
@@ -23,7 +22,7 @@ export async function POST(request: Request) {
     });
 
     if (!rateLimit.allowed) {
-      return NextResponse.json(
+      return Response.json(
         {
           error:
             "Слишком много попыток проверки файлов. Попробуйте немного позже.",
@@ -42,7 +41,7 @@ export async function POST(request: Request) {
     const file = formData.get("file");
 
     if (!(file instanceof File)) {
-      return NextResponse.json(
+      return Response.json(
         {
           error: "Выберите файл для печати.",
           requestId,
@@ -54,7 +53,7 @@ export async function POST(request: Request) {
     const validation = validateSupportedFile(file);
 
     if (!validation.valid) {
-      return NextResponse.json(
+      return Response.json(
         {
           error: validation.error,
           requestId,
@@ -65,10 +64,18 @@ export async function POST(request: Request) {
 
     const analysis = await analyzePrintFile(file);
 
-    return NextResponse.json({
-      success: true,
-      pageCount: analysis.pageCount,
-      pdfSize: analysis.pdfSize,
+    const pdfBody = new Uint8Array(analysis.pdfBytes).buffer;
+
+    return new Response(pdfBody, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Length": String(analysis.pdfSize),
+        "Content-Disposition": 'inline; filename="prepared.pdf"',
+        "Cache-Control": "no-store",
+        "X-Page-Count": String(analysis.pageCount),
+        "X-Prepared-PDF-Size": String(analysis.pdfSize),
+      },
     });
   } catch (error) {
     await logAppError({
@@ -81,9 +88,9 @@ export async function POST(request: Request) {
     const message =
       error instanceof Error && error.message
         ? error.message
-        : "Не удалось проверить файл. Попробуйте ещё раз или отправьте его на ручную проверку.";
+        : "Не удалось подготовить файл. Попробуйте ещё раз или отправьте его на ручную проверку.";
 
-    return NextResponse.json(
+    return Response.json(
       {
         error: message,
         requestId,

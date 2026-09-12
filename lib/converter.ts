@@ -6,14 +6,20 @@ const SUPPORTED_EXTENSIONS = new Set([
 ]);
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const MAX_CONVERTED_PDF_SIZE = 100 * 1024 * 1024;
 
 export type FileAnalysis = {
   pageCount: number;
-  pdfSize: number | null;
+  pdfSize: number;
+  pdfBytes: Uint8Array;
 };
 
 export function getFileExtension(fileName: string) {
   return fileName.split(".").pop()?.toLowerCase() ?? "";
+}
+
+export function isOfficeFile(fileName: string) {
+  return ["docx", "xlsx", "pptx"].includes(getFileExtension(fileName));
 }
 
 export function validateSupportedFile(file: File) {
@@ -47,6 +53,8 @@ export function validateSupportedFile(file: File) {
 /**
  * Выполняется только на сервере ONREZA.
  * CONVERTER_API_KEY никогда не передаётся в браузер.
+ *
+ * Возвращает PDF, подготовленный из исходного PDF/DOCX/XLSX/PPTX.
  */
 export async function analyzePrintFile(file: File): Promise<FileAnalysis> {
   const converterUrl = process.env.CONVERTER_API_URL;
@@ -75,7 +83,7 @@ export async function analyzePrintFile(file: File): Promise<FileAnalysis> {
       cache: "no-store",
     });
 
-   if (!response.ok) {
+    if (!response.ok) {
       throw new Error(
         `Сервис подготовки файлов временно вернул ошибку HTTP ${response.status}.`
       );
@@ -89,18 +97,42 @@ export async function analyzePrintFile(file: File): Promise<FileAnalysis> {
       );
     }
 
-    const contentLength = Number(response.headers.get("content-length"));
+    const contentType = response.headers.get("content-type") ?? "";
 
-    // PDF не отправляется пользователю и не сохраняется на ONREZA.
-    // На этом шаге нам нужны только число страниц и размер результата.
-    await response.body?.cancel();
+    if (!contentType.toLowerCase().startsWith("application/pdf")) {
+      throw new Error(
+        "Сервис подготовки файлов вернул результат в некорректном формате."
+      );
+    }
+
+    const pdfBytes = new Uint8Array(await response.arrayBuffer());
+
+    if (pdfBytes.byteLength < 5) {
+      throw new Error("Подготовленный PDF-файл пустой.");
+    }
+
+    if (
+      pdfBytes[0] !== 0x25 ||
+      pdfBytes[1] !== 0x50 ||
+      pdfBytes[2] !== 0x44 ||
+      pdfBytes[3] !== 0x46 ||
+      pdfBytes[4] !== 0x2d
+    ) {
+      throw new Error(
+        "Сервис подготовки файлов вернул результат в некорректном формате."
+      );
+    }
+
+    if (pdfBytes.byteLength > MAX_CONVERTED_PDF_SIZE) {
+      throw new Error(
+        "Подготовленный PDF больше 100 МБ. Отправьте файл на ручную проверку."
+      );
+    }
 
     return {
       pageCount,
-      pdfSize:
-        Number.isSafeInteger(contentLength) && contentLength > 0
-          ? contentLength
-          : null,
+      pdfSize: pdfBytes.byteLength,
+      pdfBytes,
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {

@@ -1,18 +1,19 @@
 import { NextResponse } from "next/server";
+import { analyzePrintFile, validateSupportedFile } from "@/lib/converter";
 import { getDb } from "@/lib/db";
-import { uploadOrderFile } from "@/lib/yandex-disk";
+import { uploadOrderFiles } from "@/lib/yandex-disk";
 import { getPrintPrice } from "@/lib/pricing";
 import {
   checkRateLimit,
   getRequestId,
   logAppError,
-  validatePrintFile,
 } from "@/lib/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_FILE_SIZE = 25 * 1024 * 1024;
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const MAX_PAGE_COUNT = 10_000;
 
 let schemaReady: Promise<void> | null = null;
 
@@ -45,6 +46,10 @@ function ensureSchema() {
           disk_path TEXT,
           file_size BIGINT,
           mime_type VARCHAR(120),
+          original_file_name VARCHAR(255),
+          original_disk_path TEXT,
+          original_file_size BIGINT,
+          original_mime_type VARCHAR(120),
           paper_format VARCHAR(10) NOT NULL,
           page_count INTEGER NOT NULL,
           copies INTEGER NOT NULL,
@@ -69,6 +74,26 @@ function ensureSchema() {
         ALTER TABLE order_items
         ADD COLUMN IF NOT EXISTS mime_type VARCHAR(120);
       `);
+
+      await db.query(`
+        ALTER TABLE order_items
+        ADD COLUMN IF NOT EXISTS original_file_name VARCHAR(255);
+      `);
+
+      await db.query(`
+        ALTER TABLE order_items
+        ADD COLUMN IF NOT EXISTS original_disk_path TEXT;
+      `);
+
+      await db.query(`
+        ALTER TABLE order_items
+        ADD COLUMN IF NOT EXISTS original_file_size BIGINT;
+      `);
+
+      await db.query(`
+        ALTER TABLE order_items
+        ADD COLUMN IF NOT EXISTS original_mime_type VARCHAR(120);
+      `);
     })().catch((error) => {
       schemaReady = null;
       throw error;
@@ -89,6 +114,12 @@ function textValue(formData: FormData, name: string) {
   const value = formData.get(name);
 
   return typeof value === "string" ? value.trim() : "";
+}
+
+function makePrintPdfName(fileName: string) {
+  const baseName = fileName.replace(/\.[^.]+$/, "").trim() || "document";
+
+  return `${baseName}.pdf`;
 }
 
 export async function POST(request: Request) {
@@ -142,10 +173,12 @@ export async function POST(request: Request) {
       );
     }
 
-    if (file.size < 1) {
+    const validation = validateSupportedFile(file);
+
+    if (!validation.valid) {
       return NextResponse.json(
         {
-          error: "Выбранный файл пустой.",
+          error: validation.error,
           requestId,
         },
         { status: 400 }
@@ -155,19 +188,7 @@ export async function POST(request: Request) {
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
         {
-          error: "Размер файла не должен превышать 25 МБ.",
-          requestId,
-        },
-        { status: 400 }
-      );
-    }
-
-    const fileValidation = await validatePrintFile(file);
-
-    if (!fileValidation.valid) {
-      return NextResponse.json(
-        {
-          error: fileValidation.error,
+          error: "Размер файла не должен превышать 50 МБ.",
           requestId,
         },
         { status: 400 }
@@ -187,7 +208,6 @@ export async function POST(request: Request) {
         ? "two-sided"
         : "one-sided";
 
-    const pageCount = Number(textValue(formData, "pageCount"));
     const copies = Number(textValue(formData, "copies"));
 
     if (customerName.length < 2) {
@@ -210,20 +230,6 @@ export async function POST(request: Request) {
       );
     }
 
-    if (
-      !Number.isInteger(pageCount) ||
-      pageCount < 1 ||
-      pageCount > 10000
-    ) {
-      return NextResponse.json(
-        {
-          error: "Проверьте количество страниц.",
-          requestId,
-        },
-        { status: 400 }
-      );
-    }
-
     if (!Number.isInteger(copies) || copies < 1 || copies > 1000) {
       return NextResponse.json(
         {
@@ -234,21 +240,45 @@ export async function POST(request: Request) {
       );
     }
 
-        const pricing = getPrintPrice({
-        paperFormat,
-        printSides,
-        pageCount,
-        copies,
-      });
+    /*
+     * Повторяем подготовку файла на сервере и не используем pageCount,
+     * присланный браузером. Это защищает от подмены количества страниц
+     * и гарантирует, что в заказ попадёт именно PDF от converter-service.
+     */
+    const analysis = await analyzePrintFile(file);
 
-      const unitPrice = pricing.baseUnitPrice;
-      const sideMultiplier = pricing.priceMultiplier;
-      const totalPrice = pricing.totalPrice;
+    if (
+      !Number.isInteger(analysis.pageCount) ||
+      analysis.pageCount < 1 ||
+      analysis.pageCount > MAX_PAGE_COUNT
+    ) {
+      return NextResponse.json(
+        {
+          error: "В подготовленном файле некорректное количество страниц.",
+          requestId,
+        },
+        { status: 400 }
+      );
+    }
 
+    const pageCount = analysis.pageCount;
+
+    const pricing = getPrintPrice({
+      paperFormat,
+      printSides,
+      pageCount,
+      copies,
+    });
+
+    const unitPrice = pricing.baseUnitPrice;
+    const sideMultiplier = pricing.priceMultiplier;
+    const totalPrice = pricing.totalPrice;
     const orderNumber = createOrderNumber();
 
-    const uploadedFile = await uploadOrderFile({
-      file,
+    const uploadedFiles = await uploadOrderFiles({
+      originalFile: file,
+      printPdf: analysis.pdfBytes,
+      printPdfName: makePrintPdfName(file.name),
       orderNumber,
     });
 
@@ -292,6 +322,10 @@ export async function POST(request: Request) {
             disk_path,
             file_size,
             mime_type,
+            original_file_name,
+            original_disk_path,
+            original_file_size,
+            original_mime_type,
             paper_format,
             page_count,
             copies,
@@ -302,15 +336,20 @@ export async function POST(request: Request) {
           )
           VALUES (
             $1, $2, $3, $4, $5,
-            $6, $7, $8, $9, $10, $11, $12
+            $6, $7, $8, $9,
+            $10, $11, $12, $13, $14, $15, $16
           );
         `,
         [
           orderId,
-          uploadedFile.originalName,
-          uploadedFile.diskPath,
-          uploadedFile.fileSize,
-          uploadedFile.mimeType,
+          uploadedFiles.printPdf.originalName,
+          uploadedFiles.printPdf.diskPath,
+          uploadedFiles.printPdf.fileSize,
+          uploadedFiles.printPdf.mimeType,
+          uploadedFiles.original.originalName,
+          uploadedFiles.original.diskPath,
+          uploadedFiles.original.fileSize,
+          uploadedFiles.original.mimeType,
           paperFormat,
           pageCount,
           copies,
@@ -345,7 +384,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Не удалось загрузить файл и создать заказ. Попробуйте ещё раз.",
+          "Не удалось подготовить файл и создать заказ. Попробуйте ещё раз.",
         requestId,
       },
       { status: 500 }

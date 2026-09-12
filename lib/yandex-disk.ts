@@ -2,6 +2,13 @@ import { randomUUID } from "crypto";
 
 const API_URL = "https://cloud-api.yandex.net/v1/disk";
 
+type UploadedFile = {
+  diskPath: string;
+  originalName: string;
+  fileSize: number;
+  mimeType: string;
+};
+
 function getSettings() {
   const token = process.env.YANDEX_DISK_TOKEN;
   const basePath = process.env.YANDEX_DISK_BASE_PATH;
@@ -11,7 +18,9 @@ function getSettings() {
   }
 
   if (!basePath) {
-    throw new Error("YANDEX_DISK_BASE_PATH не задана в настройках проекта.");
+    throw new Error(
+      "YANDEX_DISK_BASE_PATH не задана в настройках проекта."
+    );
   }
 
   return {
@@ -50,28 +59,42 @@ function safeFileName(fileName: string) {
   return cleaned || "document";
 }
 
-export async function uploadOrderFile({
-  file,
-  orderNumber,
-}: {
-  file: File;
-  orderNumber: string;
-}) {
-  const { token, basePath } = getSettings();
-
+function getMonthlyPaths(basePath: string) {
   const now = new Date();
   const year = String(now.getUTCFullYear());
   const month = String(now.getUTCMonth() + 1).padStart(2, "0");
 
-  const yearPath = `${basePath}/${year}`;
-  const monthPath = `${yearPath}/${month}`;
+  return {
+    yearPath: `${basePath}/${year}`,
+    monthPath: `${basePath}/${year}/${month}`,
+  };
+}
+
+async function uploadFile({
+  bytes,
+  fileName,
+  mimeType,
+  orderNumber,
+  folder,
+}: {
+  bytes: Uint8Array;
+  fileName: string;
+  mimeType: string;
+  orderNumber: string;
+  folder: "originals" | "print-pdf";
+}): Promise<UploadedFile> {
+  const { token, basePath } = getSettings();
+  const { yearPath, monthPath } = getMonthlyPaths(basePath);
+
+  const folderPath = `${monthPath}/${folder}`;
 
   await ensureFolder(yearPath, token);
   await ensureFolder(monthPath, token);
+  await ensureFolder(folderPath, token);
 
-  const originalName = safeFileName(file.name);
+  const originalName = safeFileName(fileName);
   const uniqueName = `${orderNumber}_${randomUUID()}_${originalName}`;
-  const diskPath = `${monthPath}/${uniqueName}`;
+  const diskPath = `${folderPath}/${uniqueName}`;
 
   const uploadLinkResponse = await fetch(
     `${API_URL}/resources/upload?${new URLSearchParams({
@@ -84,23 +107,25 @@ export async function uploadOrderFile({
   );
 
   if (!uploadLinkResponse.ok) {
-    throw new Error("Не удалось получить ссылку для загрузки файла.");
+    throw new Error(
+      "Не удалось получить ссылку для загрузки файла на Яндекс Диск."
+    );
   }
 
   const uploadLink = (await uploadLinkResponse.json()) as { href?: string };
 
   if (!uploadLink.href) {
-    throw new Error("Яндекс Диск не вернул ссылку для загрузки.");
+    throw new Error(
+      "Яндекс Диск не вернул ссылку для загрузки файла."
+    );
   }
-
-  const fileBuffer = Buffer.from(await file.arrayBuffer());
 
   const uploadResponse = await fetch(uploadLink.href, {
     method: "PUT",
     headers: {
-      "Content-Type": file.type || "application/octet-stream",
+      "Content-Type": mimeType,
     },
-    body: fileBuffer,
+    body: Buffer.from(bytes),
   });
 
   if (!uploadResponse.ok) {
@@ -110,9 +135,67 @@ export async function uploadOrderFile({
   return {
     diskPath,
     originalName,
-    fileSize: file.size,
-    mimeType: file.type || "application/octet-stream",
+    fileSize: bytes.byteLength,
+    mimeType,
   };
+}
+
+/**
+ * Сохраняет оба файла заказа:
+ * - исходный файл, предоставленный пользователем;
+ * - PDF, подготовленный converter-service и предназначенный для печати.
+ */
+export async function uploadOrderFiles({
+  originalFile,
+  printPdf,
+  printPdfName,
+  orderNumber,
+}: {
+  originalFile: File;
+  printPdf: Uint8Array;
+  printPdfName: string;
+  orderNumber: string;
+}) {
+  const original = await uploadFile({
+    bytes: new Uint8Array(await originalFile.arrayBuffer()),
+    fileName: originalFile.name,
+    mimeType: originalFile.type || "application/octet-stream",
+    orderNumber,
+    folder: "originals",
+  });
+
+  const printPdfFile = await uploadFile({
+    bytes: printPdf,
+    fileName: printPdfName,
+    mimeType: "application/pdf",
+    orderNumber,
+    folder: "print-pdf",
+  });
+
+  return {
+    original,
+    printPdf: printPdfFile,
+  };
+}
+
+/**
+ * Оставлено для совместимости с прежним кодом.
+ * Новые заказы должны использовать uploadOrderFiles().
+ */
+export async function uploadOrderFile({
+  file,
+  orderNumber,
+}: {
+  file: File;
+  orderNumber: string;
+}) {
+  return uploadFile({
+    bytes: new Uint8Array(await file.arrayBuffer()),
+    fileName: file.name,
+    mimeType: file.type || "application/octet-stream",
+    orderNumber,
+    folder: "originals",
+  });
 }
 
 export async function getOrderFileDownloadUrl(diskPath: string) {
@@ -127,13 +210,17 @@ export async function getOrderFileDownloadUrl(diskPath: string) {
   );
 
   if (!response.ok) {
-    throw new Error("Не удалось получить ссылку для скачивания файла.");
+    throw new Error(
+      "Не удалось получить ссылку для скачивания файла с Яндекс Диска."
+    );
   }
 
   const data = (await response.json()) as { href?: string };
 
   if (!data.href) {
-    throw new Error("Яндекс Диск не вернул ссылку на файл.");
+    throw new Error(
+      "Яндекс Диск не вернул ссылку на скачивание файла."
+    );
   }
 
   return data.href;
