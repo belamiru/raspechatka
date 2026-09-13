@@ -1,12 +1,22 @@
-const SUPPORTED_EXTENSIONS = new Set([
+const DOCUMENT_EXTENSIONS = new Set([
   "pdf",
+  "doc",
   "docx",
+  "xls",
   "xlsx",
+  "ppt",
   "pptx",
+  "odt",
+  "ods",
+  "rtf",
 ]);
+
+const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png"]);
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const MAX_CONVERTED_PDF_SIZE = 100 * 1024 * 1024;
+
+export type FileKind = "document" | "image";
 
 export type FileAnalysis = {
   pageCount: number;
@@ -18,17 +28,36 @@ export function getFileExtension(fileName: string) {
   return fileName.split(".").pop()?.toLowerCase() ?? "";
 }
 
-export function isOfficeFile(fileName: string) {
-  return ["docx", "xlsx", "pptx"].includes(getFileExtension(fileName));
+export function getFileKind(fileName: string): FileKind | null {
+  const extension = getFileExtension(fileName);
+
+  if (DOCUMENT_EXTENSIONS.has(extension)) {
+    return "document";
+  }
+
+  if (IMAGE_EXTENSIONS.has(extension)) {
+    return "image";
+  }
+
+  return null;
+}
+
+export function isDocumentFile(fileName: string) {
+  return getFileKind(fileName) === "document";
+}
+
+export function isImageFile(fileName: string) {
+  return getFileKind(fileName) === "image";
 }
 
 export function validateSupportedFile(file: File) {
-  const extension = getFileExtension(file.name);
+  const fileKind = getFileKind(file.name);
 
-  if (!SUPPORTED_EXTENSIONS.has(extension)) {
+  if (!fileKind) {
     return {
       valid: false as const,
-      error: "Поддерживаются файлы PDF, DOCX, XLSX и PPTX.",
+      error:
+        "Поддерживаются PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, ODT, ODS, RTF, JPG и PNG.",
     };
   }
 
@@ -47,16 +76,26 @@ export function validateSupportedFile(file: File) {
     };
   }
 
-  return { valid: true as const };
+  return {
+    valid: true as const,
+    kind: fileKind,
+  };
 }
 
 /**
  * Выполняется только на сервере ONREZA.
  * CONVERTER_API_KEY никогда не передаётся в браузер.
  *
- * Возвращает PDF, подготовленный из исходного PDF/DOCX/XLSX/PPTX.
+ * Возвращает PDF, подготовленный из документа.
+ * JPG/JPEG/PNG через этот сервис не проходят.
  */
-export async function analyzePrintFile(file: File): Promise<FileAnalysis> {
+export async function analyzeDocumentFile(file: File): Promise<FileAnalysis> {
+  if (!isDocumentFile(file.name)) {
+    throw new Error(
+      "В сервис подготовки PDF можно отправлять только документы."
+    );
+  }
+
   const converterUrl = process.env.CONVERTER_API_URL;
   const converterApiKey = process.env.CONVERTER_API_KEY;
 
@@ -111,6 +150,12 @@ export async function analyzePrintFile(file: File): Promise<FileAnalysis> {
       throw new Error("Подготовленный PDF-файл пустой.");
     }
 
+    if (pdfBytes.byteLength > MAX_CONVERTED_PDF_SIZE) {
+      throw new Error(
+        "Подготовленный PDF больше 100 МБ. Для него нужна ручная проверка."
+      );
+    }
+
     if (
       pdfBytes[0] !== 0x25 ||
       pdfBytes[1] !== 0x50 ||
@@ -119,13 +164,7 @@ export async function analyzePrintFile(file: File): Promise<FileAnalysis> {
       pdfBytes[4] !== 0x2d
     ) {
       throw new Error(
-        "Сервис подготовки файлов вернул результат в некорректном формате."
-      );
-    }
-
-    if (pdfBytes.byteLength > MAX_CONVERTED_PDF_SIZE) {
-      throw new Error(
-        "Подготовленный PDF больше 100 МБ. Отправьте файл на ручную проверку."
+        "Сервис подготовки файлов вернул некорректный PDF-файл."
       );
     }
 
@@ -137,7 +176,7 @@ export async function analyzePrintFile(file: File): Promise<FileAnalysis> {
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error(
-        "Проверка файла заняла слишком много времени. Попробуйте другой файл или отправьте его на ручную проверку."
+        "Подготовка файла заняла слишком много времени. Попробуйте файл меньшего размера."
       );
     }
 

@@ -1,5 +1,5 @@
 import {
-  analyzePrintFile,
+  analyzeDocumentFile,
   validateSupportedFile,
 } from "@/lib/converter";
 import {
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const analysis = await analyzePrintFile(file);
+    const analysis = await analyzeDocumentFile(file);
 
     const pdfBody = new Uint8Array(analysis.pdfBytes).buffer;
 

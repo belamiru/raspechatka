@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { analyzePrintFile, validateSupportedFile } from "@/lib/converter";
+import {
+  analyzeDocumentFile,
+  validateSupportedFile,
+} from "@/lib/converter";
 import { getDb } from "@/lib/db";
 import { uploadOrderFiles } from "@/lib/yandex-disk";
 import { getPrintPrice } from "@/lib/pricing";
@@ -245,7 +248,7 @@ export async function POST(request: Request) {
      * присланный браузером. Это защищает от подмены количества страниц
      * и гарантирует, что в заказ попадёт именно PDF от converter-service.
      */
-    const analysis = await analyzePrintFile(file);
+    const analysis = await analyzeDocumentFile(file);
 
     if (
       !Number.isInteger(analysis.pageCount) ||
