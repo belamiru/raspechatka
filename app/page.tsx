@@ -1,6 +1,17 @@
 "use client";
 
-import { ChangeEvent, DragEvent, FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
+import { OrderFileDropzone } from "@/components/order-file-dropzone";
+import {
+  OrderFileList,
+  type OrderFileListItem,
+} from "@/components/order-file-list";
+import {
+  analyzeClientFile,
+  MAX_FILES_PER_ORDER,
+  MAX_TOTAL_FILE_SIZE,
+  validateClientFile,
+} from "@/lib/client-file-analysis";
 import { SiteFooter } from "@/components/site-footer";
 import { reachMetrikaGoal } from "@/lib/metrika";
 import { getPrintPrice } from "@/lib/pricing";
@@ -8,16 +19,23 @@ import { getPrintPrice } from "@/lib/pricing";
 type PrintFormat = "A4" | "A3";
 type PrintSide = "one-sided" | "two-sided";
 
+function makeFileId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function makeFileKey(file: File) {
+  return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
 export default function Home() {
-  const [fileName, setFileName] = useState("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<OrderFileListItem[]>([]);
   const [format, setFormat] = useState<PrintFormat>("A4");
   const [copies, setCopies] = useState(1);
   const [sides, setSides] = useState<PrintSide>("one-sided");
-  const [pages, setPages] = useState(1);
-  const [isAnalyzingFile, setIsAnalyzingFile] = useState(false);
-  const [preparedPdfUrl, setPreparedPdfUrl] = useState("");
-  const [preparedPdfName, setPreparedPdfName] = useState("");
 
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -33,122 +51,182 @@ export default function Home() {
   const [formError, setFormError] = useState("");
   const [createdOrderNumber, setCreatedOrderNumber] = useState("");
 
-    const pricing = useMemo(
-  () =>
-    getPrintPrice({
-      paperFormat: format,
-      printSides: sides,
-      pageCount: pages,
-      copies,
-    }),
-  [format, copies, sides, pages]
-);
+  const isAnalyzingFiles = files.some(
+    (file) => file.status === "analyzing"
+  );
 
-const price = pricing.totalPrice;
+  const hasFileErrors = files.some((file) => file.status === "error");
 
-async function selectFile(file?: File) {
-  if (!file) return;
+  const readyFiles = files.filter((file) => file.status === "ready");
 
-  const extension = file.name.split(".").pop()?.toLowerCase();
-  const supportedExtensions = ["pdf", "docx", "xlsx", "pptx"];
+  const totalPages = readyFiles.reduce(
+    (total, file) => total + (file.pageCount ?? 0),
+    0
+  );
 
-  if (!extension || !supportedExtensions.includes(extension)) {
-    alert("Поддерживаются файлы PDF, DOCX, XLSX и PPTX.");
-    return;
+  /*
+   * Цена считается отдельно для каждого файла, так же как на сервере
+   * в app/api/orders/route.ts. Благодаря этому предварительная сумма
+   * в интерфейсе соответствует серверному расчёту.
+   */
+  const itemPricings = useMemo(
+    () =>
+      readyFiles.map((file) =>
+        getPrintPrice({
+          paperFormat: format,
+          printSides: sides,
+          pageCount: file.pageCount ?? 0,
+          copies,
+        })
+      ),
+    [copies, format, readyFiles, sides]
+  );
+
+  const price = itemPricings.reduce(
+    (total, pricing) => total + pricing.totalPrice,
+    0
+  );
+
+  const totalPrintQuantity = itemPricings.reduce(
+    (total, pricing) => total + pricing.quantity,
+    0
+  );
+
+  const totalSourceFileSize = files.reduce(
+    (total, item) => total + item.file.size,
+    0
+  );
+
+  function removeFile(id: string) {
+    setFiles((currentFiles) =>
+      currentFiles.filter((file) => file.id !== id)
+    );
+
+    setFormError("");
+    setCreatedOrderNumber("");
   }
 
-  if (file.size < 1) {
-    alert("Выбранный файл пустой.");
-    return;
+  async function analyzeAddedFile(id: string, file: File) {
+    try {
+      const analysis = await analyzeClientFile(file);
+
+      setFiles((currentFiles) =>
+        currentFiles.map((currentFile) =>
+          currentFile.id === id
+            ? {
+                ...currentFile,
+                kind: analysis.kind,
+                pageCount: analysis.pageCount,
+                status: "ready",
+                error: null,
+              }
+            : currentFile
+        )
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Не удалось проверить файл. Удалите его и попробуйте добавить снова.";
+
+      setFiles((currentFiles) =>
+        currentFiles.map((currentFile) =>
+          currentFile.id === id
+            ? {
+                ...currentFile,
+                status: "error",
+                error: message,
+              }
+            : currentFile
+        )
+      );
+    }
   }
 
-  if (file.size > 50 * 1024 * 1024) {
-    alert("Размер файла не должен превышать 50 МБ.");
-    return;
-  }
+  function addFiles(nextFiles: File[]) {
+    if (nextFiles.length === 0) {
+      return;
+    }
 
-  if (preparedPdfUrl) {
-    URL.revokeObjectURL(preparedPdfUrl);
-  }
+    setFormError("");
+    setCreatedOrderNumber("");
 
-  setFileName(file.name);
-  setSelectedFile(file);
-  setPreparedPdfUrl("");
-  setPreparedPdfName("");
-  setCreatedOrderNumber("");
-  setFormError("");
-  setIsAnalyzingFile(true);
-  reachMetrikaGoal("file_selected");
+    const existingFileKeys = new Set(files.map((item) => makeFileKey(item.file)));
 
-  try {
-    const formData = new FormData();
-    formData.append("file", file);
+    const uniqueFiles = nextFiles.filter((file) => {
+      const key = makeFileKey(file);
 
-    const response = await fetch("/api/files/analyze", {
-      method: "POST",
-      body: formData,
+      if (existingFileKeys.has(key)) {
+        return false;
+      }
+
+      existingFileKeys.add(key);
+      return true;
     });
 
-    if (!response.ok) {
-      const result = (await response.json().catch(() => null)) as {
-        error?: string;
-      } | null;
-
-      throw new Error(
-        result?.error ?? "Не удалось подготовить файл для печати."
-      );
+    if (uniqueFiles.length === 0) {
+      setFormError("Все выбранные файлы уже добавлены в заказ.");
+      return;
     }
 
-    const pageCount = Number(response.headers.get("x-page-count"));
-
-    if (
-      !Number.isInteger(pageCount) ||
-      pageCount < 1 ||
-      pageCount > 10000
-    ) {
-      throw new Error(
-        "Сервис вернул некорректное количество страниц."
+    if (files.length + uniqueFiles.length > MAX_FILES_PER_ORDER) {
+      setFormError(
+        `За один заказ можно добавить не больше ${MAX_FILES_PER_ORDER} файлов.`
       );
+      return;
     }
 
-    const pdfBlob = await response.blob();
+    const validationErrors: string[] = [];
 
-    if (pdfBlob.size < 5 || pdfBlob.type !== "application/pdf") {
-      throw new Error(
-        "Сервис подготовки файлов вернул результат в некорректном формате."
-      );
+    for (const file of uniqueFiles) {
+      const validation = validateClientFile(file);
+
+      if (!validation.valid) {
+        validationErrors.push(`${file.name}: ${validation.error}`);
+      }
     }
 
-    const sourceNameWithoutExtension =
-      file.name.replace(/\.[^.]+$/, "") || "document";
+    if (validationErrors.length > 0) {
+      setFormError(validationErrors.join(" "));
+      return;
+    }
 
-    setPages(pageCount);
-    setPreparedPdfName(`${sourceNameWithoutExtension}.pdf`);
-    setPreparedPdfUrl(URL.createObjectURL(pdfBlob));
-  } catch (error) {
-    setFileName("");
-    setSelectedFile(null);
-    setPreparedPdfUrl("");
-    setPreparedPdfName("");
-
-    setFormError(
-      error instanceof Error
-        ? error.message
-        : "Не удалось подготовить файл. Попробуйте ещё раз."
+    const addedFilesSize = uniqueFiles.reduce(
+      (total, file) => total + file.size,
+      0
     );
-  } finally {
-    setIsAnalyzingFile(false);
+
+    if (totalSourceFileSize + addedFilesSize > MAX_TOTAL_FILE_SIZE) {
+      setFormError(
+        "Общий размер файлов в одном заказе не должен превышать 200 МБ."
+      );
+      return;
+    }
+
+    const newItems: OrderFileListItem[] = uniqueFiles.map((file) => {
+      const validation = validateClientFile(file);
+
+      if (!validation.valid) {
+        throw new Error("Не удалось проверить выбранный файл.");
+      }
+
+      return {
+        id: makeFileId(),
+        file,
+        kind: validation.kind,
+        pageCount: null,
+        status: "analyzing",
+        error: null,
+      };
+    });
+
+    setFiles((currentFiles) => [...currentFiles, ...newItems]);
+    reachMetrikaGoal("file_selected");
+
+    for (const item of newItems) {
+      void analyzeAddedFile(item.id, item.file);
+    }
   }
-}
-
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-  void selectFile(event.target.files?.[0]);
-}
-
-function handleDrop(event: DragEvent<HTMLLabelElement>) {
-  event.preventDefault();
-  void selectFile(event.dataTransfer.files?.[0]);
-}
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -156,12 +234,29 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
     setFormError("");
     setCreatedOrderNumber("");
 
-    if (!selectedFile) {
-      setFormError("Сначала выберите файл для печати.");
+    if (files.length === 0) {
+      setFormError("Сначала выберите хотя бы один файл для печати.");
       return;
     }
-    if (isAnalyzingFile) {
-      setFormError("Подождите: PDF-файл ещё проверяется.");
+
+    if (isAnalyzingFiles) {
+      setFormError(
+        "Подождите: файлы ещё проверяются. Заказ можно оформить после завершения проверки."
+      );
+      return;
+    }
+
+    if (hasFileErrors) {
+      setFormError(
+        "В списке есть файлы с ошибками проверки. Удалите их или добавьте заново."
+      );
+      return;
+    }
+
+    if (readyFiles.length !== files.length) {
+      setFormError(
+        "Не все файлы готовы к печати. Проверьте список файлов и попробуйте ещё раз."
+      );
       return;
     }
 
@@ -178,15 +273,18 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
       );
       return;
     }
+
     reachMetrikaGoal("order_form_submit");
     setIsSubmitting(true);
 
     try {
       const formData = new FormData();
 
-      formData.append("file", selectedFile);
+      for (const item of readyFiles) {
+        formData.append("files", item.file, item.file.name);
+      }
+
       formData.append("paperFormat", format);
-      formData.append("pageCount", String(pages));
       formData.append("copies", String(copies));
       formData.append("printSides", sides);
       formData.append("customerName", customerName);
@@ -210,21 +308,24 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
         body: formData,
       });
 
-      const result = await response.json();
+      const result = (await response.json().catch(() => null)) as {
+        orderNumber?: string;
+        error?: string;
+        requestId?: string;
+      } | null;
 
       if (!response.ok) {
-        const requestNote = result.requestId
+        const requestNote = result?.requestId
           ? ` Номер ошибки: ${result.requestId}`
           : "";
 
         setFormError(
-          `${result.error ?? "Не удалось создать заказ."}${requestNote}`
+          `${result?.error ?? "Не удалось создать заказ."}${requestNote}`
         );
-
         return;
       }
 
-      setCreatedOrderNumber(result.orderNumber);
+      setCreatedOrderNumber(result?.orderNumber ?? "");
       reachMetrikaGoal("order_created");
     } catch {
       setFormError(
@@ -246,18 +347,18 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
             РАСПЕЧАТКА
           </a>
 
-         <nav className="hidden items-center gap-5 text-sm sm:flex">
-  <a
-    href="/services"
-    className="font-semibold text-slate-600 transition hover:text-blue-700"
-  >
-    Услуги
-  </a>
+          <nav className="hidden items-center gap-5 text-sm sm:flex">
+            <a
+              href="/services"
+              className="font-semibold text-slate-600 transition hover:text-blue-700"
+            >
+              Услуги
+            </a>
 
-  <span className="text-slate-500">
-    Чёрно-белая печать документов в Воронеже
-  </span>
-</nav>
+            <span className="text-slate-500">
+              Чёрно-белая печать документов в Воронеже
+            </span>
+          </nav>
 
           <a
             href="#order"
@@ -275,15 +376,17 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
           </p>
 
           <h1 className="text-4xl font-black tracking-tight sm:text-5xl">
-            Загрузите файл — мы распечатаем его
+            Загрузите файлы — мы распечатаем их
           </h1>
 
           <p className="mt-5 text-lg leading-8 text-slate-600">
-            Чёрно-белая печать форматов A4 и A3. Загрузите документ, выберите
-            параметры, узнайте предварительную стоимость и оформите заказ.
+            Чёрно-белая печать форматов A4 и A3. Добавьте документы или
+            изображения, выберите параметры, узнайте предварительную стоимость
+            и оформите заказ.
           </p>
         </div>
-                <section
+
+        <section
           aria-labelledby="other-services-heading"
           className="mb-10 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
         >
@@ -344,6 +447,7 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
             </a>
           </div>
         </section>
+
         <form
           onSubmit={handleSubmit}
           className="grid gap-6 lg:grid-cols-[1.5fr_1fr]"
@@ -366,93 +470,30 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
           </div>
 
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-            <h2 className="text-2xl font-bold">1. Загрузите файл</h2>
+            <h2 className="text-2xl font-bold">1. Загрузите файлы</h2>
 
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              Поддерживаются PDF, DOCX, XLSX и PPTX. Максимальный размер одного файла —
-                50 МБ.
+              Можно добавить до 8 файлов: документы PDF, DOC, DOCX, XLS, XLSX,
+              PPT, PPTX, ODT, ODS, RTF и изображения JPG, JPEG, PNG.
             </p>
 
-            <label
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={handleDrop}
-              className="mt-6 flex min-h-56 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50 p-6 text-center transition hover:border-blue-600 hover:bg-blue-100"
-            >
-              <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-700 text-3xl text-white">
-                ↑
-              </div>
+            <OrderFileDropzone
+              disabled={isSubmitting}
+              onFilesSelected={addFiles}
+            />
 
-              <span className="text-lg font-bold">Перетащите файл сюда</span>
+            <OrderFileList items={files} onRemove={removeFile} />
 
-              <span className="mt-2 text-sm text-slate-500">
-                или нажмите, чтобы выбрать на компьютере
-              </span>
-
-              <input
-                type="file"
-                accept=".pdf,.docx,.xlsx,.pptx"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-            </label>
-           {isAnalyzingFile && (
-              <p className="mt-4 text-sm font-medium text-blue-700">
-                Подготавливаем PDF для печати и проверяем количество страниц…
+            {files.length > 0 && (
+              <p className="mt-4 text-sm text-slate-500">
+                Добавлено файлов: {files.length} из {MAX_FILES_PER_ORDER}.
+                {" "}
+                Общий размер:{" "}
+                {Math.max(1, Math.round(totalSourceFileSize / 1024 / 1024))} МБ
+                {" "}
+                из 200 МБ.
               </p>
             )}
-            {fileName && (
-            <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
-                    Файл выбран
-                  </p>
-                  <p className="mt-1 truncate font-semibold text-slate-800">
-                    {fileName}
-                  </p>
-
-                  {preparedPdfName && (
-                    <p className="mt-1 text-sm text-emerald-800">
-                      Подготовлен PDF для печати: {preparedPdfName}
-                    </p>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (preparedPdfUrl) {
-                      URL.revokeObjectURL(preparedPdfUrl);
-                    }
-
-                    setFileName("");
-                    setSelectedFile(null);
-                    setPreparedPdfUrl("");
-                    setPreparedPdfName("");
-                    setPages(1);
-                    setFormError("");
-                  }}
-                  className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-100"
-                >
-                  Удалить
-                </button>
-              </div>
-
-              {preparedPdfUrl && (
-                <div className="mt-4 border-t border-emerald-200 pt-4">
-                  <p className="mb-3 text-sm font-semibold text-slate-800">
-                    Проверьте результат перед оформлением заказа
-                  </p>
-
-                  <iframe
-                    src={preparedPdfUrl}
-                    title="Предпросмотр подготовленного PDF"
-                    className="h-[520px] w-full rounded-xl border border-slate-300 bg-white"
-                  />
-                </div>
-              )}
-            </div>
-          )}
 
             <div className="mt-8 border-t border-slate-100 pt-8">
               <h2 className="text-2xl font-bold">2. Настройте печать</h2>
@@ -494,12 +535,12 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
 
                 <label className="block">
                   <span className="mb-2 block text-sm font-semibold">
-                    Количество страниц
+                    Всего страниц
                   </span>
 
                   <input
                     type="number"
-                    value={pages}
+                    value={totalPages}
                     readOnly
                     aria-readonly="true"
                     className="w-full cursor-not-allowed rounded-xl border border-slate-300 bg-slate-100 px-4 py-3 text-slate-700 outline-none"
@@ -522,7 +563,8 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
                     <option value="two-sided">Двусторонняя (× 2)</option>
                   </select>
                 </label>
-                            </div>
+              </div>
+
               <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
                 <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
                   <p className="text-sm font-bold text-slate-800">
@@ -530,8 +572,8 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
                   </p>
 
                   <p className="mt-1 text-xs leading-5 text-slate-500">
-                    Цена зависит от общего количества страниц во всех копиях.
-                    Для A3 цена ×2, для двусторонней печати цена ×2.
+                    Цена зависит от количества страниц в каждом файле с учётом
+                    копий. Для A3 цена ×2, для двусторонней печати цена ×2.
                   </p>
                 </div>
 
@@ -770,13 +812,18 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
 
             <div className="mt-7 space-y-4 border-y border-slate-700 py-6 text-sm">
               <div className="flex justify-between gap-4">
-                <span className="text-slate-400">Формат</span>
-                <span className="font-semibold">{format}</span>
+                <span className="text-slate-400">Файлов</span>
+                <span className="font-semibold">{files.length}</span>
               </div>
 
               <div className="flex justify-between gap-4">
                 <span className="text-slate-400">Страниц</span>
-                <span className="font-semibold">{pages}</span>
+                <span className="font-semibold">{totalPages}</span>
+              </div>
+
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-400">Формат</span>
+                <span className="font-semibold">{format}</span>
               </div>
 
               <div className="flex justify-between gap-4">
@@ -802,17 +849,19 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
             <div className="mt-6 rounded-2xl bg-white/10 p-4">
               <div className="flex justify-between gap-4 text-sm">
                 <span className="text-slate-300">Общий тираж</span>
-                <span className="font-semibold">{pricing.quantity} стр.</span>
+                <span className="font-semibold">{totalPrintQuantity} стр.</span>
               </div>
 
               <div className="mt-3 flex justify-between gap-4 text-sm">
-                <span className="text-slate-300">Ступень цены</span>
-                <span className="text-right font-semibold">{pricing.tier.label}</span>
+                <span className="text-slate-300">Расчёт</span>
+                <span className="text-right font-semibold">
+                  По каждому файлу
+                </span>
               </div>
 
-              <div className="mt-3 flex justify-between gap-4 text-sm">
-                <span className="text-slate-300">Цена за страницу</span>
-                <span className="font-semibold">{pricing.effectiveUnitPrice} ₽</span>
+              <div className="mt-3 text-xs leading-5 text-slate-400">
+                Скидка определяется отдельно для каждого файла — так же, как
+                при серверном создании заказа.
               </div>
             </div>
 
@@ -823,10 +872,11 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
               <span className="text-3xl font-black">{price} ₽</span>
             </div>
 
-            <p className="mt-3 text-xs leading-5 text-slate-400">
-              Скидка применяется ко всему тиражу при достижении соответствующего
-              количества страниц.
-            </p>
+            {isAnalyzingFiles && (
+              <p className="mt-4 rounded-xl bg-blue-500/20 p-3 text-sm font-medium text-blue-100">
+                Проверяем добавленные файлы и считаем страницы…
+              </p>
+            )}
 
             {formError && (
               <p className="mt-5 rounded-xl bg-red-500/20 p-3 text-sm font-medium text-red-100">
@@ -852,10 +902,19 @@ function handleDrop(event: DragEvent<HTMLLabelElement>) {
 
             <button
               type="submit"
-              disabled={isSubmitting || isAnalyzingFile}
+              disabled={
+                isSubmitting ||
+                isAnalyzingFiles ||
+                files.length === 0 ||
+                hasFileErrors
+              }
               className="mt-7 w-full rounded-xl bg-blue-600 px-5 py-4 font-bold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? "Создаём заказ..." : "Оформить заказ"}
+              {isSubmitting
+                ? "Создаём заказ..."
+                : isAnalyzingFiles
+                  ? "Проверяем файлы..."
+                  : "Оформить заказ"}
             </button>
 
             <p className="mt-4 text-center text-xs leading-5 text-slate-400">

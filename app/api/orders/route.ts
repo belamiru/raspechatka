@@ -2,9 +2,13 @@ import { NextResponse } from "next/server";
 import {
   analyzeDocumentFile,
   validateSupportedFile,
+  type FileKind,
 } from "@/lib/converter";
 import { getDb } from "@/lib/db";
-import { uploadOrderFiles } from "@/lib/yandex-disk";
+import {
+  uploadOrderFile,
+  uploadOrderFiles,
+} from "@/lib/yandex-disk";
 import { getPrintPrice } from "@/lib/pricing";
 import {
   checkRateLimit,
@@ -16,7 +20,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const MAX_TOTAL_FILE_SIZE = 200 * 1024 * 1024;
+const MAX_FILES_PER_ORDER = 8;
 const MAX_PAGE_COUNT = 10_000;
+
+type PreparedOrderItem = {
+  file: File;
+  kind: FileKind;
+  pageCount: number;
+  printPdf?: Uint8Array;
+};
 
 let schemaReady: Promise<void> | null = null;
 
@@ -125,6 +138,24 @@ function makePrintPdfName(fileName: string) {
   return `${baseName}.pdf`;
 }
 
+function getSubmittedFiles(formData: FormData) {
+  const files = formData
+    .getAll("files")
+    .filter((value): value is File => value instanceof File);
+
+  /*
+   * Временная обратная совместимость с предыдущей формой:
+   * до публикации нового интерфейса она отправляет поле "file".
+   */
+  if (files.length > 0) {
+    return files;
+  }
+
+  const legacyFile = formData.get("file");
+
+  return legacyFile instanceof File ? [legacyFile] : [];
+}
+
 export async function POST(request: Request) {
   const requestId = getRequestId();
 
@@ -164,34 +195,62 @@ export async function POST(request: Request) {
       });
     }
 
-    const file = formData.get("file");
+    const files = getSubmittedFiles(formData);
 
-    if (!(file instanceof File)) {
+    if (files.length < 1) {
       return NextResponse.json(
         {
-          error: "Сначала выберите файл для печати.",
+          error: "Сначала выберите хотя бы один файл для печати.",
           requestId,
         },
         { status: 400 }
       );
     }
 
-    const validation = validateSupportedFile(file);
-
-    if (!validation.valid) {
+    if (files.length > MAX_FILES_PER_ORDER) {
       return NextResponse.json(
         {
-          error: validation.error,
+          error: `За один заказ можно добавить не больше ${MAX_FILES_PER_ORDER} файлов.`,
           requestId,
         },
         { status: 400 }
       );
     }
 
-    if (file.size > MAX_FILE_SIZE) {
+    let totalSourceFileSize = 0;
+    const fileKinds: FileKind[] = [];
+
+    for (const file of files) {
+      const validation = validateSupportedFile(file);
+
+      if (!validation.valid) {
+        return NextResponse.json(
+          {
+            error: `${file.name}: ${validation.error}`,
+            requestId,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (file.size > MAX_FILE_SIZE) {
+        return NextResponse.json(
+          {
+            error: `${file.name}: размер файла не должен превышать 50 МБ.`,
+            requestId,
+          },
+          { status: 400 }
+        );
+      }
+
+      totalSourceFileSize += file.size;
+      fileKinds.push(validation.kind);
+    }
+
+    if (totalSourceFileSize > MAX_TOTAL_FILE_SIZE) {
       return NextResponse.json(
         {
-          error: "Размер файла не должен превышать 50 МБ.",
+          error: "Общий размер файлов в заказе не должен превышать 200 МБ.",
           requestId,
         },
         { status: 400 }
@@ -244,46 +303,113 @@ export async function POST(request: Request) {
     }
 
     /*
-     * Повторяем подготовку файла на сервере и не используем pageCount,
-     * присланный браузером. Это защищает от подмены количества страниц
-     * и гарантирует, что в заказ попадёт именно PDF от converter-service.
+     * Повторяем обработку всех документов на сервере и не доверяем
+     * pageCount, переданному браузером. Изображение — одна страница
+     * и никогда не отправляется в converter-service.
      */
-    const analysis = await analyzeDocumentFile(file);
+    const preparedItems: PreparedOrderItem[] = [];
 
-    if (
-      !Number.isInteger(analysis.pageCount) ||
-      analysis.pageCount < 1 ||
-      analysis.pageCount > MAX_PAGE_COUNT
-    ) {
-      return NextResponse.json(
-        {
-          error: "В подготовленном файле некорректное количество страниц.",
-          requestId,
-        },
-        { status: 400 }
-      );
+    for (const [index, file] of files.entries()) {
+      const kind = fileKinds[index];
+
+      if (kind === "image") {
+        preparedItems.push({
+          file,
+          kind,
+          pageCount: 1,
+        });
+
+        continue;
+      }
+
+      const analysis = await analyzeDocumentFile(file);
+
+      if (
+        !Number.isInteger(analysis.pageCount) ||
+        analysis.pageCount < 1 ||
+        analysis.pageCount > MAX_PAGE_COUNT
+      ) {
+        return NextResponse.json(
+          {
+            error: `${file.name}: в подготовленном файле некорректное количество страниц.`,
+            requestId,
+          },
+          { status: 400 }
+        );
+      }
+
+      preparedItems.push({
+        file,
+        kind,
+        pageCount: analysis.pageCount,
+        printPdf: analysis.pdfBytes,
+      });
     }
 
-    const pageCount = analysis.pageCount;
+    const pricedItems = preparedItems.map((item) => {
+      const pricing = getPrintPrice({
+        paperFormat,
+        printSides,
+        pageCount: item.pageCount,
+        copies,
+      });
 
-    const pricing = getPrintPrice({
-      paperFormat,
-      printSides,
-      pageCount,
-      copies,
+      return {
+        ...item,
+        pricing,
+      };
     });
 
-    const unitPrice = pricing.baseUnitPrice;
-    const sideMultiplier = pricing.priceMultiplier;
-    const totalPrice = pricing.totalPrice;
+    const totalPrice = pricedItems.reduce(
+      (total, item) => total + item.pricing.totalPrice,
+      0
+    );
+
     const orderNumber = createOrderNumber();
 
-    const uploadedFiles = await uploadOrderFiles({
-      originalFile: file,
-      printPdf: analysis.pdfBytes,
-      printPdfName: makePrintPdfName(file.name),
-      orderNumber,
-    });
+    /*
+     * Документы хранятся в двух вариантах:
+     * original — исходный файл, print-pdf — подготовленный PDF.
+     *
+     * Изображения хранятся один раз в originals. Этот же файл является
+     * файлом для печати, поэтому его данные будут записаны и в полях
+     * print-файла позиции заказа.
+     */
+    const uploadedItems = [];
+
+    for (const item of pricedItems) {
+      if (item.kind === "image") {
+        const original = await uploadOrderFile({
+          file: item.file,
+          orderNumber,
+        });
+
+        uploadedItems.push({
+          ...item,
+          original,
+          printFile: original,
+        });
+
+        continue;
+      }
+
+      if (!item.printPdf) {
+        throw new Error("Не найден подготовленный PDF для документа.");
+      }
+
+      const uploadedFiles = await uploadOrderFiles({
+        originalFile: item.file,
+        printPdf: item.printPdf,
+        printPdfName: makePrintPdfName(item.file.name),
+        orderNumber,
+      });
+
+      uploadedItems.push({
+        ...item,
+        original: uploadedFiles.original,
+        printFile: uploadedFiles.printPdf,
+      });
+    }
 
     const client = await getDb().connect();
 
@@ -317,51 +443,53 @@ export async function POST(request: Request) {
 
       const orderId = orderResult.rows[0].id;
 
-      await client.query(
-        `
-          INSERT INTO order_items (
-            order_id,
-            file_name,
-            disk_path,
-            file_size,
-            mime_type,
-            original_file_name,
-            original_disk_path,
-            original_file_size,
-            original_mime_type,
-            paper_format,
-            page_count,
+      for (const item of uploadedItems) {
+        await client.query(
+          `
+            INSERT INTO order_items (
+              order_id,
+              file_name,
+              disk_path,
+              file_size,
+              mime_type,
+              original_file_name,
+              original_disk_path,
+              original_file_size,
+              original_mime_type,
+              paper_format,
+              page_count,
+              copies,
+              print_sides,
+              unit_price,
+              side_multiplier,
+              item_total
+            )
+            VALUES (
+              $1, $2, $3, $4, $5,
+              $6, $7, $8, $9,
+              $10, $11, $12, $13, $14, $15, $16
+            );
+          `,
+          [
+            orderId,
+            item.printFile.originalName,
+            item.printFile.diskPath,
+            item.printFile.fileSize,
+            item.printFile.mimeType,
+            item.original.originalName,
+            item.original.diskPath,
+            item.original.fileSize,
+            item.original.mimeType,
+            paperFormat,
+            item.pageCount,
             copies,
-            print_sides,
-            unit_price,
-            side_multiplier,
-            item_total
-          )
-          VALUES (
-            $1, $2, $3, $4, $5,
-            $6, $7, $8, $9,
-            $10, $11, $12, $13, $14, $15, $16
-          );
-        `,
-        [
-          orderId,
-          uploadedFiles.printPdf.originalName,
-          uploadedFiles.printPdf.diskPath,
-          uploadedFiles.printPdf.fileSize,
-          uploadedFiles.printPdf.mimeType,
-          uploadedFiles.original.originalName,
-          uploadedFiles.original.diskPath,
-          uploadedFiles.original.fileSize,
-          uploadedFiles.original.mimeType,
-          paperFormat,
-          pageCount,
-          copies,
-          printSides,
-          unitPrice,
-          sideMultiplier,
-          totalPrice,
-        ]
-      );
+            printSides,
+            item.pricing.baseUnitPrice,
+            item.pricing.priceMultiplier,
+            item.pricing.totalPrice,
+          ]
+        );
+      }
 
       await client.query("COMMIT");
 
@@ -387,7 +515,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Не удалось подготовить файл и создать заказ. Попробуйте ещё раз.",
+          "Не удалось подготовить файлы и создать заказ. Попробуйте ещё раз.",
         requestId,
       },
       { status: 500 }

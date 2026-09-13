@@ -11,6 +11,8 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const MAX_PAGE_COUNT = 10_000;
+
 export async function POST(request: Request) {
   const requestId = getRequestId();
 
@@ -62,7 +64,37 @@ export async function POST(request: Request) {
       );
     }
 
+    /*
+     * JPG/JPEG/PNG не направляются в converter-service:
+     * одно изображение считается одной печатной страницей и будет
+     * сохранено как оригинал для печати.
+     */
+    if (validation.kind === "image") {
+      return Response.json(
+        {
+          success: true,
+          kind: "image",
+          pageCount: 1,
+        },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
+
     const analysis = await analyzeDocumentFile(file);
+
+    if (
+      !Number.isInteger(analysis.pageCount) ||
+      analysis.pageCount < 1 ||
+      analysis.pageCount > MAX_PAGE_COUNT
+    ) {
+      throw new Error(
+        "Сервис подготовки файлов вернул некорректное количество страниц."
+      );
+    }
 
     const pdfBody = new Uint8Array(analysis.pdfBytes).buffer;
 
@@ -73,6 +105,7 @@ export async function POST(request: Request) {
         "Content-Length": String(analysis.pdfSize),
         "Content-Disposition": 'inline; filename="prepared.pdf"',
         "Cache-Control": "no-store",
+        "X-File-Kind": "document",
         "X-Page-Count": String(analysis.pageCount),
         "X-Prepared-PDF-Size": String(analysis.pdfSize),
       },
@@ -88,7 +121,7 @@ export async function POST(request: Request) {
     const message =
       error instanceof Error && error.message
         ? error.message
-        : "Не удалось подготовить файл. Попробуйте ещё раз или отправьте его на ручную проверку.";
+        : "Не удалось проверить файл. Попробуйте ещё раз или отправьте его на ручную проверку.";
 
     return Response.json(
       {
