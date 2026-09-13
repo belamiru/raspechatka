@@ -32,39 +32,46 @@ export async function GET(
   }
 
   const { id } = await context.params;
-  const orderId = Number(id);
+  const orderItemId = Number(id);
 
-  if (!Number.isInteger(orderId) || orderId < 1) {
+  if (!Number.isInteger(orderItemId) || orderItemId < 1) {
     return NextResponse.json(
-      { error: "Некорректный идентификатор заказа." },
+      { error: "Некорректный идентификатор файла." },
       { status: 400 }
     );
   }
 
+  /*
+   * В URL передаётся ID конкретной записи order_items.
+   * Поэтому администратор получает именно выбранный файл,
+   * а не первую позицию соответствующего заказа.
+   */
   const result = await getDb().query<FileRow>(
     `
       SELECT disk_path, file_name, mime_type
       FROM order_items
-      WHERE order_id = $1
+      WHERE id = $1
       LIMIT 1;
     `,
-    [orderId]
+    [orderItemId]
   );
 
   const file = result.rows[0];
 
   if (!file?.disk_path) {
     return NextResponse.json(
-      { error: "Файл для этого заказа не найден." },
+      { error: "Файл для скачивания не найден." },
       { status: 404 }
     );
   }
 
   try {
-    // Получаем временную закрытую ссылку у Яндекс Диска.
+    /*
+     * Получаем временную закрытую ссылку у Яндекс Диска,
+     * скачиваем файл сервером и передаём его только авторизованному админу.
+     */
     const downloadUrl = await getOrderFileDownloadUrl(file.disk_path);
 
-    // Скачиваем файл сервером и передаём его только авторизованному админу.
     const diskResponse = await fetch(downloadUrl, {
       cache: "no-store",
     });
@@ -76,9 +83,11 @@ export async function GET(
     const fileName = makeDownloadFileName(file.file_name ?? "document");
     const encodedFileName = encodeURIComponent(fileName);
 
-    // Обычный filename должен содержать только ASCII.
-    // Реальное имя, включая кириллицу, браузеры получают из filename*.
-    const fallbackFileName = "print-file.pdf";
+    /*
+     * Обычный filename содержит только ASCII для совместимости,
+     * а filename* передаёт настоящее имя, включая кириллицу.
+     */
+    const fallbackFileName = "print-file";
 
     return new Response(diskResponse.body, {
       headers: {
