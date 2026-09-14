@@ -16,6 +16,7 @@ import {
 import { SiteFooter } from "@/components/site-footer";
 import { reachMetrikaGoal } from "@/lib/metrika";
 import { getPrintPrice } from "@/lib/pricing";
+import { PrintSettingsPanel } from "@/components/print-settings-panel";
 
 function makeFileId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -31,6 +32,7 @@ function makeFileKey(file: File) {
 
 export default function Home() {
   const [files, setFiles] = useState<OrderFileListItem[]>([]);
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
 
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -107,6 +109,14 @@ export default function Home() {
     0
   );
 
+
+  const selectedFile =
+    files.find((file) => file.id === selectedFileId) ?? null;
+
+  const selectedFilePrice =
+    itemPricings.find((item) => item.file.id === selectedFile?.id)?.pricing
+      .totalPrice ?? null;
+
   const totalSourceFileSize = files.reduce(
     (total, item) => total + item.file.size,
     0
@@ -116,6 +126,14 @@ export default function Home() {
     setFiles((currentFiles) =>
       currentFiles.filter((file) => file.id !== id)
     );
+
+    setSelectedFileId((currentFileId) => {
+      if (currentFileId !== id) {
+        return currentFileId;
+      }
+
+      return files.find((file) => file.id !== id)?.id ?? null;
+    });
 
     setFormError("");
     setCreatedOrderNumber("");
@@ -150,6 +168,22 @@ export default function Home() {
     setFormError("");
     setCreatedOrderNumber("");
   }
+  function applyPrintSettingsToAll(settings: FilePrintSettings) {
+    setFiles((currentFiles) =>
+      currentFiles.map((file) => ({
+        ...file,
+        printSettings: {
+          ...settings,
+          printSides:
+            file.kind === "image" ? "one-sided" : settings.printSides,
+        },
+      }))
+    );
+
+    setFormError("");
+    setCreatedOrderNumber("");
+  }
+
   async function analyzeAddedFile(id: string, file: File) {
     try {
       const analysis = await analyzeClientFile(file);
@@ -270,6 +304,7 @@ export default function Home() {
     });
 
     setFiles((currentFiles) => [...currentFiles, ...newItems]);
+    setSelectedFileId((currentFileId) => currentFileId ?? newItems[0].id);
     reachMetrikaGoal("file_selected");
 
     for (const item of newItems) {
@@ -545,7 +580,8 @@ export default function Home() {
             <OrderFileList
               items={files}
               onRemove={removeFile}
-              onPrintSettingsChange={changeFilePrintSettings}
+              selectedFileId={selectedFileId}
+              onSelectFile={setSelectedFileId}
             />
 
             {files.length > 0 && (
@@ -798,10 +834,18 @@ export default function Home() {
             </div>
           </section>
 
-          <aside
-            id="order"
-            className="h-fit rounded-3xl bg-slate-900 p-6 text-white shadow-xl sm:p-8 lg:sticky lg:top-6"
-          >
+          <div className="space-y-6">
+            <PrintSettingsPanel
+              selectedFile={selectedFile}
+              selectedFilePrice={selectedFilePrice}
+              onPrintSettingsChange={changeFilePrintSettings}
+              onApplyToAll={applyPrintSettingsToAll}
+            />
+
+            <aside
+              id="order"
+              className="rounded-3xl bg-slate-900 p-6 text-white shadow-xl sm:p-8"
+            >
             <p className="text-sm font-bold uppercase tracking-wider text-blue-300">
               Ваш заказ
             </p>
@@ -911,7 +955,8 @@ export default function Home() {
             <p className="mt-4 text-center text-xs leading-5 text-slate-400">
               Самовывоз: Воронеж, ул. Шукшина, д. 21, офис 8.
             </p>
-          </aside>
+            </aside>
+          </div>
         </form>
       </section>
 
