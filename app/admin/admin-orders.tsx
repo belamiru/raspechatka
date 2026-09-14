@@ -73,7 +73,44 @@ function getFileTypeLabel(mimeType: string | null) {
 
   return "Документ";
 }
+function getPhysicalSheetCount({
+  pageCount,
+  copies,
+  printSides,
+}: {
+  pageCount: number;
+  copies: number;
+  printSides: string;
+}) {
+  const validPageCount = Math.max(1, pageCount);
+  const validCopies = Math.max(1, copies);
 
+  const sheetsPerCopy =
+    printSides === "two-sided"
+      ? Math.ceil(validPageCount / 2)
+      : validPageCount;
+
+  return sheetsPerCopy * validCopies;
+}
+
+function getSheetLabel(count: number) {
+  const lastTwoDigits = count % 100;
+  const lastDigit = count % 10;
+
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+    return "листов";
+  }
+
+  if (lastDigit === 1) {
+    return "лист";
+  }
+
+  if (lastDigit >= 2 && lastDigit <= 4) {
+    return "листа";
+  }
+
+  return "листов";
+}
 export default function AdminOrders({
   initialOrders,
 }: {
@@ -349,8 +386,20 @@ export default function AdminOrders({
                               </div>
 
                               <p className="mt-2 text-sm text-slate-600">
-                                Файл {index + 1} · {file.paperFormat},{" "}
-                                {file.pageCount} стр., {file.copies} коп. ·{" "}
+                                Файл {index + 1} · {file.paperFormat} · {file.pageCount} стр. ·{" "}
+                                {getPhysicalSheetCount({
+                                  pageCount: file.pageCount,
+                                  copies: file.copies,
+                                  printSides: file.printSides,
+                                })}{" "}
+                                {getSheetLabel(
+                                  getPhysicalSheetCount({
+                                    pageCount: file.pageCount,
+                                    copies: file.copies,
+                                    printSides: file.printSides,
+                                  })
+                                )}{" "}
+                                · {file.copies} коп. ·{" "}
                                 {file.printSides === "two-sided"
                                   ? "двусторонняя печать"
                                   : "односторонняя печать"}

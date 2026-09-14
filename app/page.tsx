@@ -4,6 +4,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { OrderFileDropzone } from "@/components/order-file-dropzone";
 import {
   OrderFileList,
+  type FilePrintSettings,
   type OrderFileListItem,
 } from "@/components/order-file-list";
 import {
@@ -15,9 +16,6 @@ import {
 import { SiteFooter } from "@/components/site-footer";
 import { reachMetrikaGoal } from "@/lib/metrika";
 import { getPrintPrice } from "@/lib/pricing";
-
-type PrintFormat = "A4" | "A3";
-type PrintSide = "one-sided" | "two-sided";
 
 function makeFileId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -33,9 +31,6 @@ function makeFileKey(file: File) {
 
 export default function Home() {
   const [files, setFiles] = useState<OrderFileListItem[]>([]);
-  const [format, setFormat] = useState<PrintFormat>("A4");
-  const [copies, setCopies] = useState(1);
-  const [sides, setSides] = useState<PrintSide>("one-sided");
 
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -65,30 +60,50 @@ export default function Home() {
   );
 
   /*
-   * Цена считается отдельно для каждого файла, так же как на сервере
-   * в app/api/orders/route.ts. Благодаря этому предварительная сумма
-   * в интерфейсе соответствует серверному расчёту.
+  /*
+   * Каждый файл рассчитывается отдельно: формат, число копий и режим
+   * печати принадлежат именно файлу, а не всему заказу.
+   *
+   * Для изображений режим всегда односторонний — даже если браузерный
+   * запрос был бы искусственно изменён.
    */
   const itemPricings = useMemo(
     () =>
-      readyFiles.map((file) =>
-        getPrintPrice({
-          paperFormat: format,
-          printSides: sides,
-          pageCount: file.pageCount ?? 0,
-          copies,
-        })
-      ),
-    [copies, format, readyFiles, sides]
+      readyFiles.map((file) => {
+        const settings = file.printSettings ?? {
+          paperFormat: "A4" as const,
+          copies: 1,
+          printSides: "one-sided" as const,
+        };
+
+        return {
+          file,
+          pricing: getPrintPrice({
+            paperFormat: settings.paperFormat,
+            printSides:
+              file.kind === "image"
+                ? "one-sided"
+                : settings.printSides,
+            pageCount: file.pageCount ?? 0,
+            copies: settings.copies,
+          }),
+        };
+      }),
+    [readyFiles]
   );
 
   const price = itemPricings.reduce(
-    (total, pricing) => total + pricing.totalPrice,
+    (total, item) => total + item.pricing.totalPrice,
     0
   );
 
   const totalPrintQuantity = itemPricings.reduce(
-    (total, pricing) => total + pricing.quantity,
+    (total, item) => total + item.pricing.quantity,
+    0
+  );
+
+  const totalPhysicalSheetQuantity = itemPricings.reduce(
+    (total, item) => total + item.pricing.physicalSheetQuantity,
     0
   );
 
@@ -105,7 +120,36 @@ export default function Home() {
     setFormError("");
     setCreatedOrderNumber("");
   }
+    function changeFilePrintSettings(
+    id: string,
+    nextSettings: FilePrintSettings
+  ) {
+    setFiles((currentFiles) =>
+      currentFiles.map((file) => {
+        if (file.id !== id) {
+          return file;
+        }
 
+        return {
+          ...file,
+          printSettings: {
+            ...nextSettings,
+
+            /*
+             * Изображения никогда не отправляем на двустороннюю печать.
+             */
+            printSides:
+              file.kind === "image"
+                ? "one-sided"
+                : nextSettings.printSides,
+          },
+        };
+      })
+    );
+
+    setFormError("");
+    setCreatedOrderNumber("");
+  }
   async function analyzeAddedFile(id: string, file: File) {
     try {
       const analysis = await analyzeClientFile(file);
@@ -210,13 +254,18 @@ export default function Home() {
         throw new Error("Не удалось проверить выбранный файл.");
       }
 
-      return {
+            return {
         id: makeFileId(),
         file,
         kind: validation.kind,
         pageCount: null,
         status: "analyzing",
         error: null,
+        printSettings: {
+          paperFormat: "A4",
+          copies: 1,
+          printSides: "one-sided",
+        },
       };
     });
 
@@ -284,9 +333,20 @@ export default function Home() {
         formData.append("files", item.file, item.file.name);
       }
 
-      formData.append("paperFormat", format);
-      formData.append("copies", String(copies));
-      formData.append("printSides", sides);
+            formData.append(
+        "fileSettings",
+        JSON.stringify(
+          readyFiles.map((item) => ({
+            fileId: item.id,
+            paperFormat: item.printSettings?.paperFormat ?? "A4",
+            copies: item.printSettings?.copies ?? 1,
+            printSides:
+              item.kind === "image"
+                ? "one-sided"
+                : (item.printSettings?.printSides ?? "one-sided"),
+          }))
+        )
+      );
       formData.append("customerName", customerName);
       formData.append("customerPhone", customerPhone);
       formData.append("customerEmail", customerEmail);
@@ -482,7 +542,11 @@ export default function Home() {
               onFilesSelected={addFiles}
             />
 
-            <OrderFileList items={files} onRemove={removeFile} />
+            <OrderFileList
+              items={files}
+              onRemove={removeFile}
+              onPrintSettingsChange={changeFilePrintSettings}
+            />
 
             {files.length > 0 && (
               <p className="mt-4 text-sm text-slate-500">
@@ -496,75 +560,7 @@ export default function Home() {
             )}
 
             <div className="mt-8 border-t border-slate-100 pt-8">
-              <h2 className="text-2xl font-bold">2. Настройте печать</h2>
-
-              <div className="mt-6 grid gap-5 sm:grid-cols-2">
-                <label className="block">
-                  <span className="mb-2 block text-sm font-semibold">
-                    Формат бумаги
-                  </span>
-
-                  <select
-                    value={format}
-                    onChange={(event) =>
-                      setFormat(event.target.value as PrintFormat)
-                    }
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
-                  >
-                    <option value="A4">A4 — от 8 до 20 ₽ за страницу</option>
-                    <option value="A3">A3 — от 16 до 40 ₽ за страницу</option>
-                  </select>
-                </label>
-
-                <label className="block">
-                  <span className="mb-2 block text-sm font-semibold">
-                    Количество копий
-                  </span>
-
-                  <input
-                    type="number"
-                    min="1"
-                    max="1000"
-                    value={copies}
-                    onChange={(event) =>
-                      setCopies(Math.max(1, Number(event.target.value)))
-                    }
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
-                  />
-                </label>
-
-                <label className="block">
-                  <span className="mb-2 block text-sm font-semibold">
-                    Всего страниц
-                  </span>
-
-                  <input
-                    type="number"
-                    value={totalPages}
-                    readOnly
-                    aria-readonly="true"
-                    className="w-full cursor-not-allowed rounded-xl border border-slate-300 bg-slate-100 px-4 py-3 text-slate-700 outline-none"
-                  />
-                </label>
-
-                <label className="block">
-                  <span className="mb-2 block text-sm font-semibold">
-                    Стороны печати
-                  </span>
-
-                  <select
-                    value={sides}
-                    onChange={(event) =>
-                      setSides(event.target.value as PrintSide)
-                    }
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
-                  >
-                    <option value="one-sided">Односторонняя</option>
-                    <option value="two-sided">Двусторонняя (× 2)</option>
-                  </select>
-                </label>
-              </div>
-
+              <h2 className="text-2xl font-bold">2. Стоимость печати</h2>
               <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
                 <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
                   <p className="text-sm font-bold text-slate-800">
@@ -572,8 +568,10 @@ export default function Home() {
                   </p>
 
                   <p className="mt-1 text-xs leading-5 text-slate-500">
-                    Цена зависит от количества страниц в каждом файле с учётом
-                    копий. Для A3 цена ×2, для двусторонней печати цена ×2.
+                    Цена рассчитывается отдельно для каждого файла с учётом формата,
+                      числа страниц и копий. Для A3 цена ×2. Двусторонняя печать
+                      уменьшает число физических листов, но не меняет стоимость печати
+                      страниц.
                   </p>
                 </div>
 
@@ -822,22 +820,15 @@ export default function Home() {
               </div>
 
               <div className="flex justify-between gap-4">
-                <span className="text-slate-400">Формат</span>
-                <span className="font-semibold">{format}</span>
-              </div>
-
-              <div className="flex justify-between gap-4">
-                <span className="text-slate-400">Копий</span>
-                <span className="font-semibold">{copies}</span>
-              </div>
-
-              <div className="flex justify-between gap-4">
-                <span className="text-slate-400">Печать</span>
+                <span className="text-slate-400">Настройки</span>
                 <span className="text-right font-semibold">
-                  {sides === "one-sided"
-                    ? "Односторонняя"
-                    : "Двусторонняя"}
+                  Для каждого файла отдельно
                 </span>
+              </div>
+
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-400">Физических листов</span>
+                <span className="font-semibold">{totalPhysicalSheetQuantity}</span>
               </div>
 
               <div className="flex justify-between gap-4">
