@@ -31,6 +31,13 @@ type PreparedOrderItem = {
   printPdf?: Uint8Array;
 };
 
+type SubmittedFileSettings = {
+  fileId: string;
+  paperFormat: "A4" | "A3";
+  copies: number;
+  printSides: "one-sided" | "two-sided";
+};
+
 let schemaReady: Promise<void> | null = null;
 
 function ensureSchema() {
@@ -144,8 +151,8 @@ function getSubmittedFiles(formData: FormData) {
     .filter((value): value is File => value instanceof File);
 
   /*
-   * Временная обратная совместимость с предыдущей формой:
-   * до публикации нового интерфейса она отправляет поле "file".
+   * Временная обратная совместимость со старой версией формы,
+   * которая передавала один файл в поле "file".
    */
   if (files.length > 0) {
     return files;
@@ -154,6 +161,100 @@ function getSubmittedFiles(formData: FormData) {
   const legacyFile = formData.get("file");
 
   return legacyFile instanceof File ? [legacyFile] : [];
+}
+
+function parseFileSettings(
+  rawValue: string,
+  expectedFileCount: number
+):
+  | { valid: true; settings: SubmittedFileSettings[] }
+  | { valid: false; error: string } {
+  let parsedValue: unknown;
+
+  try {
+    parsedValue = JSON.parse(rawValue);
+  } catch {
+    return {
+      valid: false,
+      error: "Не удалось прочитать настройки печати файлов.",
+    };
+  }
+
+  if (!Array.isArray(parsedValue) || parsedValue.length !== expectedFileCount) {
+    return {
+      valid: false,
+      error:
+        "Настройки печати должны быть указаны отдельно для каждого файла.",
+    };
+  }
+
+  const fileIds = new Set<string>();
+  const settings: SubmittedFileSettings[] = [];
+
+  for (const item of parsedValue) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return {
+        valid: false,
+        error: "Некорректный формат настроек печати.",
+      };
+    }
+
+    const value = item as Record<string, unknown>;
+
+    const fileId =
+      typeof value.fileId === "string" ? value.fileId.trim() : "";
+
+    const paperFormat = value.paperFormat;
+    const copies = value.copies;
+    const printSides = value.printSides;
+
+    if (!fileId || fileIds.has(fileId)) {
+      return {
+        valid: false,
+        error: "Не удалось сопоставить настройки с файлами заказа.",
+      };
+    }
+
+    if (paperFormat !== "A4" && paperFormat !== "A3") {
+      return {
+        valid: false,
+        error: "Выбран некорректный формат бумаги.",
+      };
+    }
+
+    if (
+      typeof copies !== "number" ||
+      !Number.isInteger(copies) ||
+      copies < 1 ||
+      copies > 1000
+    ) {
+      return {
+        valid: false,
+        error: "Проверьте количество копий для каждого файла.",
+      };
+    }
+
+    if (printSides !== "one-sided" && printSides !== "two-sided") {
+      return {
+        valid: false,
+        error: "Выбран некорректный режим печати.",
+      };
+    }
+
+    fileIds.add(fileId);
+
+    settings.push({
+      fileId,
+      paperFormat,
+      copies,
+      printSides,
+    });
+  }
+
+  return {
+    valid: true,
+    settings,
+  };
 }
 
 export async function POST(request: Request) {
@@ -187,8 +288,10 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const website = textValue(formData, "website");
 
+    /*
+     * Honeypot: не сообщаем боту, что его запрос отклонён.
+     */
     if (website) {
-      // Не сообщаем боту, что его запрос был отклонён.
       return NextResponse.json({
         success: true,
         orderNumber: `R-${Date.now()}`,
@@ -250,7 +353,8 @@ export async function POST(request: Request) {
     if (totalSourceFileSize > MAX_TOTAL_FILE_SIZE) {
       return NextResponse.json(
         {
-          error: "Общий размер файлов в заказе не должен превышать 200 МБ.",
+          error:
+            "Общий размер файлов в заказе не должен превышать 200 МБ.",
           requestId,
         },
         { status: 400 }
@@ -261,16 +365,6 @@ export async function POST(request: Request) {
     const customerPhone = textValue(formData, "customerPhone");
     const customerEmail = textValue(formData, "customerEmail");
     const customerComment = textValue(formData, "customerComment");
-
-    const paperFormat =
-      textValue(formData, "paperFormat") === "A3" ? "A3" : "A4";
-
-    const printSides =
-      textValue(formData, "printSides") === "two-sided"
-        ? "two-sided"
-        : "one-sided";
-
-    const copies = Number(textValue(formData, "copies"));
 
     if (customerName.length < 2) {
       return NextResponse.json(
@@ -292,31 +386,58 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!Number.isInteger(copies) || copies < 1 || copies > 1000) {
+    /*
+     * В app/page.tsx fileSettings передаётся в том же порядке,
+     * в котором файлы добавляются в FormData.
+     *
+     * Сервер проверяет количество, структуру, диапазоны значений и
+     * уникальность идентификаторов. Расчёт цены в любом случае
+     * выполняется повторно на сервере.
+     */
+    const parsedFileSettings = parseFileSettings(
+      textValue(formData, "fileSettings"),
+      files.length
+    );
+
+    if (!parsedFileSettings.valid) {
       return NextResponse.json(
         {
-          error: "Проверьте количество копий.",
+          error: parsedFileSettings.error,
           requestId,
         },
         { status: 400 }
       );
     }
 
+    const fileSettings = parsedFileSettings.settings;
+
     /*
-     * Повторяем обработку всех документов на сервере и не доверяем
-     * pageCount, переданному браузером. Изображение — одна страница
-     * и никогда не отправляется в converter-service.
+     * Повторяем обработку документов на сервере: не доверяем числу
+     * страниц, которое ранее показал браузер.
+     *
+     * Для изображения — одна страница. Изображения принудительно
+     * печатаются односторонне, независимо от содержимого запроса.
      */
-    const preparedItems: PreparedOrderItem[] = [];
+    const preparedItems: Array<
+      PreparedOrderItem & { settings: SubmittedFileSettings }
+    > = [];
 
     for (const [index, file] of files.entries()) {
       const kind = fileKinds[index];
+      const submittedSettings = fileSettings[index];
+
+      const settings: SubmittedFileSettings = {
+        ...submittedSettings,
+        printSides:
+          kind === "image" ? "one-sided" : submittedSettings.printSides,
+      };
 
       if (kind === "image") {
         preparedItems.push({
           file,
           kind,
           pageCount: 1,
+          settings,
         });
 
         continue;
@@ -343,15 +464,21 @@ export async function POST(request: Request) {
         kind,
         pageCount: analysis.pageCount,
         printPdf: analysis.pdfBytes,
+        settings,
       });
     }
 
+    /*
+     * Каждая позиция рассчитывается самостоятельно.
+     * Двусторонняя печать уменьшает число физических листов, но не
+     * повышает стоимость печатаемых страниц.
+     */
     const pricedItems = preparedItems.map((item) => {
       const pricing = getPrintPrice({
-        paperFormat,
-        printSides,
+        paperFormat: item.settings.paperFormat,
+        printSides: item.settings.printSides,
         pageCount: item.pageCount,
-        copies,
+        copies: item.settings.copies,
       });
 
       return {
@@ -368,12 +495,12 @@ export async function POST(request: Request) {
     const orderNumber = createOrderNumber();
 
     /*
-     * Документы хранятся в двух вариантах:
-     * original — исходный файл, print-pdf — подготовленный PDF.
+     * Документы сохраняются в двух вариантах:
+     * - original: исходный загруженный файл;
+     * - print-pdf: PDF, подготовленный для печати.
      *
-     * Изображения хранятся один раз в originals. Этот же файл является
-     * файлом для печати, поэтому его данные будут записаны и в полях
-     * print-файла позиции заказа.
+     * Изображение сохраняется один раз — оно одновременно является и
+     * оригиналом, и файлом для печати.
      */
     const uploadedItems = [];
 
@@ -394,7 +521,9 @@ export async function POST(request: Request) {
       }
 
       if (!item.printPdf) {
-        throw new Error("Не найден подготовленный PDF для документа.");
+        throw new Error(
+          "Не найден подготовленный PDF для документа."
+        );
       }
 
       const uploadedFiles = await uploadOrderFiles({
@@ -480,12 +609,12 @@ export async function POST(request: Request) {
             item.original.diskPath,
             item.original.fileSize,
             item.original.mimeType,
-            paperFormat,
+            item.settings.paperFormat,
             item.pageCount,
-            copies,
-            printSides,
-            item.pricing.baseUnitPrice,
-            item.pricing.priceMultiplier,
+            item.settings.copies,
+            item.settings.printSides,
+            item.pricing.effectiveUnitPrice,
+            item.pricing.sidesMultiplier,
             item.pricing.totalPrice,
           ]
         );
@@ -505,17 +634,17 @@ export async function POST(request: Request) {
       client.release();
     }
   } catch (error) {
-    await logAppError({
-      request,
-      requestId,
-      scope: "create_order",
-      error,
-    });
+        await logAppError({
+          request,
+          requestId,
+          scope: "create_order_failed",
+          error,
+        });
 
     return NextResponse.json(
       {
         error:
-          "Не удалось подготовить файлы и создать заказ. Попробуйте ещё раз.",
+          "Не удалось создать заказ. Попробуйте ещё раз немного позже.",
         requestId,
       },
       { status: 500 }
