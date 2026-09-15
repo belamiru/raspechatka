@@ -17,28 +17,6 @@ export async function POST(request: Request) {
   const requestId = getRequestId();
 
   try {
-    const rateLimit = await checkRateLimit(request, "analyze_file", {
-      shortWindowMinutes: 15,
-      shortWindowLimit: 8,
-      dailyLimit: 30,
-    });
-
-    if (!rateLimit.allowed) {
-      return Response.json(
-        {
-          error:
-            "Слишком много попыток проверки файлов. Попробуйте немного позже.",
-          requestId,
-        },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": String(rateLimit.retryAfterSeconds),
-          },
-        }
-      );
-    }
-
     const formData = await request.formData();
     const file = formData.get("file");
 
@@ -79,6 +57,35 @@ export async function POST(request: Request) {
         {
           headers: {
             "Cache-Control": "no-store",
+          },
+        }
+      );
+    }
+        /*
+     * Лимитируем только документы: именно их проверка запускает конвертацию
+     * на отдельном сервисе. JPG/JPEG/PNG обрабатываются мгновенно выше и не
+     * должны расходовать лимит при пакетной загрузке.
+     *
+     * В заказ можно добавить до 8 файлов, поэтому прежний лимит в 8 проверок
+     * за 15 минут блокировал пользователя уже после одного полного выбора.
+     */
+    const rateLimit = await checkRateLimit(request, "analyze_file", {
+      shortWindowMinutes: 15,
+      shortWindowLimit: 32,
+      dailyLimit: 120,
+    });
+
+    if (!rateLimit.allowed) {
+      return Response.json(
+        {
+          error:
+            "Слишком много проверок документов. Попробуйте немного позже.",
+          requestId,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateLimit.retryAfterSeconds),
           },
         }
       );
