@@ -545,7 +545,7 @@ export default function Home() {
 
         <form
           onSubmit={handleSubmit}
-          className="grid gap-6 lg:grid-cols-[1.5fr_1fr]"
+          className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]"
         >
           <div
             aria-hidden="true"
@@ -834,7 +834,7 @@ export default function Home() {
             </div>
           </section>
 
-          <div className="space-y-6">
+            <div className="min-w-0 space-y-6 lg:sticky lg:top-6 lg:self-start">
             <PrintSettingsPanel
               selectedFile={selectedFile}
               selectedFilePrice={selectedFilePrice}

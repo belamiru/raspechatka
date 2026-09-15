@@ -49,7 +49,7 @@ export function PrintSettingsPanel({
 }: PrintSettingsPanelProps) {
   if (!selectedFile) {
     return (
-      <aside className="h-fit rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 lg:sticky lg:top-6">
+      <aside className="h-fit min-w-0 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <p className="text-sm font-bold uppercase tracking-wider text-blue-700">
           Параметры печати
         </p>
@@ -106,7 +106,7 @@ export function PrintSettingsPanel({
   }
 
   return (
-    <aside className="h-fit rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 lg:sticky lg:top-6">
+    <aside className="h-fit min-w-0 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-bold uppercase tracking-wider text-blue-700">
