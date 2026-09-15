@@ -52,6 +52,10 @@ export default function Home() {
     (file) => file.status === "analyzing"
   );
 
+  const analyzingFileCount = files.filter(
+    (file) => file.status === "analyzing"
+  ).length;
+
   const hasFileErrors = files.some((file) => file.status === "error");
 
   const readyFiles = files.filter((file) => file.status === "ready");
@@ -574,6 +578,7 @@ export default function Home() {
 
             <OrderFileDropzone
               disabled={isSubmitting}
+              isProcessing={isAnalyzingFiles}
               onFilesSelected={addFiles}
             />
 
@@ -583,6 +588,49 @@ export default function Home() {
               selectedFileId={selectedFileId}
               onSelectFile={setSelectedFileId}
             />
+
+            {isAnalyzingFiles && (
+              <div
+                className="mt-4 flex items-center gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950"
+                role="status"
+                aria-live="polite"
+              >
+                <svg
+                  className="h-5 w-5 shrink-0 animate-spin text-blue-700"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="9"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                  />
+                  <path
+                    d="M21 12a9 9 0 0 0-9-9"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span>
+                  Подготавливаем файлы: {analyzingFileCount} из {files.length}.
+                  Подождите, пока завершится проверка.
+                </span>
+              </div>
+            )}
+
+            <div className="mt-6 lg:hidden">
+              <PrintSettingsPanel
+                selectedFile={selectedFile}
+                selectedFilePrice={selectedFilePrice}
+                onPrintSettingsChange={changeFilePrintSettings}
+                onApplyToAll={applyPrintSettingsToAll}
+              />
+            </div>
 
             {files.length > 0 && (
               <p className="mt-4 text-sm text-slate-500">
@@ -834,7 +882,7 @@ export default function Home() {
             </div>
           </section>
 
-            <div className="min-w-0 space-y-6 lg:sticky lg:top-6 lg:self-start">
+            <div className="hidden min-w-0 space-y-6 lg:sticky lg:top-6 lg:block lg:self-start">
             <PrintSettingsPanel
               selectedFile={selectedFile}
               selectedFilePrice={selectedFilePrice}

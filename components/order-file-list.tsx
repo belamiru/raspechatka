@@ -68,7 +68,7 @@ function getStatusContent(item: OrderFileListItem) {
   if (item.status === "analyzing") {
     return {
       className: "bg-blue-100 text-blue-800",
-      label: "Проверяется…",
+      label: "Подготавливается…",
     };
   }
 
@@ -197,8 +197,31 @@ export function OrderFileList({
                     </span>
 
                     <span
-                      className={`rounded-full px-2 py-1 text-xs font-bold ${status.className}`}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-bold ${status.className}`}
                     >
+                      {item.status === "analyzing" && (
+                        <svg
+                          className="h-3.5 w-3.5 animate-spin"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          aria-hidden="true"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="9"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                          />
+                          <path
+                            d="M21 12a9 9 0 0 0-9-9"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      )}
                       {status.label}
                     </span>
                   </div>
@@ -218,9 +241,12 @@ export function OrderFileList({
 
                   {item.status === "ready" && (
                     <p className="mt-1 text-xs text-blue-700">
-                      {isSelected
-                        ? "Параметры этого файла отображаются справа."
-                        : "Нажмите, чтобы настроить этот файл."}
+                      <span className="sm:hidden">Параметры печати…</span>
+                      <span className="hidden sm:inline">
+                        {isSelected
+                          ? "Параметры этого файла отображаются справа."
+                          : "Нажмите, чтобы настроить этот файл."}
+                      </span>
                     </p>
                   )}
 
