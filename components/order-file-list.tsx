@@ -5,6 +5,8 @@ import {
   type ClientFileKind,
 } from "@/lib/client-file-analysis";
 import type { PaperFormat, PrintSides } from "@/lib/pricing";
+import { FileTypeIcon } from "@/components/file-type-icon";
+import { ImageFileThumbnail } from "@/components/image-file-thumbnail";
 
 export type OrderFileStatus = "analyzing" | "ready" | "error";
 
@@ -182,6 +184,12 @@ export function OrderFileList({
                 >
                   {isSelected ? "✓" : index + 1}
                 </div>
+
+                  {item.kind === "image" ? (
+                  <ImageFileThumbnail file={item.file} />
+                ) : (
+                  <FileTypeIcon fileName={item.file.name} />
+                )}
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
