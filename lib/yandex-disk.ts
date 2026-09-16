@@ -225,3 +225,102 @@ export async function getOrderFileDownloadUrl(diskPath: string) {
 
   return data.href;
 }
+export type UploadedPrintDraftFiles = {
+  original: UploadedFile;
+  printPdf: UploadedFile;
+};
+
+async function uploadPrintDraftFile({
+  bytes,
+  fileName,
+  mimeType,
+  draftKey,
+  folder,
+}: {
+  bytes: Uint8Array;
+  fileName: string;
+  mimeType: string;
+  draftKey: string;
+  folder: "originals" | "print-pdf";
+}): Promise<UploadedFile> {
+  const { token, basePath } = getSettings();
+  const draftsPath = `${basePath}/drafts`;
+  const folderPath = `${draftsPath}/${folder}`;
+
+  await ensureFolder(draftsPath, token);
+  await ensureFolder(folderPath, token);
+
+  const originalName = safeFileName(fileName);
+  const diskPath = `${folderPath}/${draftKey}_${randomUUID()}_${originalName}`;
+
+  const uploadLinkResponse = await fetch(
+    `${API_URL}/resources/upload?${new URLSearchParams({
+      path: diskPath,
+      overwrite: "false",
+    })}`,
+    { headers: headers(token) }
+  );
+
+  if (!uploadLinkResponse.ok) {
+    throw new Error("Не удалось получить ссылку для загрузки черновика на Яндекс Диск.");
+  }
+
+  const uploadLink = (await uploadLinkResponse.json()) as { href?: string };
+
+  if (!uploadLink.href) {
+    throw new Error("Яндекс Диск не вернул ссылку для загрузки черновика.");
+  }
+
+  const uploadResponse = await fetch(uploadLink.href, {
+    method: "PUT",
+    headers: { "Content-Type": mimeType },
+    body: Buffer.from(bytes),
+  });
+
+  if (!uploadResponse.ok) {
+    throw new Error("Не удалось сохранить черновик на Яндекс Диск.");
+  }
+
+  return {
+    diskPath,
+    originalName,
+    fileSize: bytes.byteLength,
+    mimeType,
+  };
+}
+
+/**
+ * Временно сохраняет исходный документ и единый канонический PDF. Эти файлы
+ * принадлежат черновику, а не заказу, и позже будут использованы для просмотра
+ * и оформления без повторной конвертации.
+ */
+export async function uploadPrintDraftFiles({
+  originalFile,
+  printPdf,
+  printPdfName,
+  draftKey,
+}: {
+  originalFile: File;
+  printPdf: Uint8Array;
+  printPdfName: string;
+  draftKey: string;
+}): Promise<UploadedPrintDraftFiles> {
+  const [original, printPdfFile] = await Promise.all([
+    uploadPrintDraftFile({
+      bytes: new Uint8Array(await originalFile.arrayBuffer()),
+      fileName: originalFile.name,
+      mimeType: originalFile.type || "application/octet-stream",
+      draftKey,
+      folder: "originals",
+    }),
+    uploadPrintDraftFile({
+      bytes: printPdf,
+      fileName: printPdfName,
+      mimeType: "application/pdf",
+      draftKey,
+      folder: "print-pdf",
+    }),
+  ]);
+
+  return { original, printPdf: printPdfFile };
+}
