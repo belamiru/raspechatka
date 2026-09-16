@@ -2,6 +2,15 @@ import {
   analyzeDocumentFile,
   validateSupportedFile,
 } from "@/lib/converter";
+import { randomUUID } from "crypto";
+import {
+  createPrintDraft,
+  createPrintDraftOwnerToken,
+  getPrintDraftLifetimeSeconds,
+  getPrintDraftOwnerCookieName,
+  getPrintDraftOwnerToken,
+} from "@/lib/print-drafts";
+import { uploadPrintDraftFiles } from "@/lib/yandex-disk";
 import {
   checkRateLimit,
   getRequestId,
@@ -12,6 +21,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_PAGE_COUNT = 10_000;
+
+function makePrintPdfName(fileName: string) {
+  const baseName = fileName.replace(/\.[^.]+$/, "").trim() || "document";
+
+  return `${baseName}.pdf`;
+}
+
+function makeOwnerCookie(token: string) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+
+  return `${getPrintDraftOwnerCookieName()}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${getPrintDraftLifetimeSeconds()}${secure}`;
+}
 
 export async function POST(request: Request) {
   const requestId = getRequestId();
@@ -103,20 +124,48 @@ export async function POST(request: Request) {
       );
     }
 
-    const pdfBody = new Uint8Array(analysis.pdfBytes).buffer;
-
-    return new Response(pdfBody, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Length": String(analysis.pdfSize),
-        "Content-Disposition": 'inline; filename="prepared.pdf"',
-        "Cache-Control": "no-store",
-        "X-File-Kind": "document",
-        "X-Page-Count": String(analysis.pageCount),
-        "X-Prepared-PDF-Size": String(analysis.pdfSize),
-      },
+    /*
+     * Документ конвертируется ровно один раз. Временный черновик содержит
+     * оригинал и этот же канонический PDF: позднее он будет показан в
+     * предпросмотре и использован при создании заказа без новой конвертации.
+     */
+    const existingOwnerToken = getPrintDraftOwnerToken(request);
+    const ownerToken = existingOwnerToken ?? createPrintDraftOwnerToken();
+    const uploadedFiles = await uploadPrintDraftFiles({
+      originalFile: file,
+      printPdf: new Uint8Array(analysis.pdfBytes),
+      printPdfName: makePrintPdfName(file.name),
+      draftKey: randomUUID(),
     });
+
+    const draft = await createPrintDraft({
+      ownerToken,
+      originalFileName: uploadedFiles.original.originalName,
+      originalDiskPath: uploadedFiles.original.diskPath,
+      originalFileSize: uploadedFiles.original.fileSize,
+      originalMimeType: uploadedFiles.original.mimeType,
+      pdfFileName: uploadedFiles.printPdf.originalName,
+      pdfDiskPath: uploadedFiles.printPdf.diskPath,
+      pdfFileSize: uploadedFiles.printPdf.fileSize,
+      pageCount: analysis.pageCount,
+    });
+
+    const headers = new Headers({ "Cache-Control": "no-store" });
+
+    if (!existingOwnerToken) {
+      headers.set("Set-Cookie", makeOwnerCookie(ownerToken));
+    }
+
+    return Response.json(
+      {
+        success: true,
+        kind: "document",
+        draftId: draft.id,
+        pageCount: draft.pageCount,
+        previewUrl: `/api/print-drafts/${draft.id}/preview`,
+      },
+      { headers }
+    );
   } catch (error) {
     await logAppError({
       request,

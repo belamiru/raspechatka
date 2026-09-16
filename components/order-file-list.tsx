@@ -23,6 +23,8 @@ export type OrderFileListItem = {
   pageCount: number | null;
   status: OrderFileStatus;
   error: string | null;
+  draftId?: string | null;
+  previewUrl?: string | null;
   printSettings?: FilePrintSettings;
 };
 

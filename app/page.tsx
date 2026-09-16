@@ -201,6 +201,8 @@ export default function Home() {
                 pageCount: analysis.pageCount,
                 status: "ready",
                 error: null,
+                draftId: analysis.draftId,
+                previewUrl: analysis.previewUrl,
               }
             : currentFile
         )
@@ -299,6 +301,8 @@ export default function Home() {
         pageCount: null,
         status: "analyzing",
         error: null,
+        draftId: null,
+        previewUrl: null,
         printSettings: {
           paperFormat: "A4",
           copies: 1,

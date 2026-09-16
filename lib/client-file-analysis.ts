@@ -1,9 +1,18 @@
 export type ClientFileKind = "document" | "image";
 
-export type ClientFileAnalysis = {
-  kind: ClientFileKind;
-  pageCount: number;
-};
+export type ClientFileAnalysis =
+  | {
+      kind: "image";
+      pageCount: 1;
+      draftId: null;
+      previewUrl: null;
+    }
+  | {
+      kind: "document";
+      pageCount: number;
+      draftId: string;
+      previewUrl: string;
+    };
 
 const DOCUMENT_EXTENSIONS = new Set([
   "pdf",
@@ -118,47 +127,49 @@ export async function analyzeClientFile(
 
   if (contentType.includes("application/json")) {
     const result = (await response.json()) as {
-      kind?: string;
+      kind?: unknown;
       pageCount?: unknown;
+      draftId?: unknown;
+      previewUrl?: unknown;
     };
 
     if (
-      result.kind !== "image" ||
-      !Number.isInteger(result.pageCount) ||
-      result.pageCount !== 1
+      result.kind === "image" &&
+      Number.isInteger(result.pageCount) &&
+      result.pageCount === 1
     ) {
-      throw new Error(
-        "Сервис проверки вернул некорректный результат для изображения."
-      );
+      return {
+        kind: "image",
+        pageCount: 1,
+        draftId: null,
+        previewUrl: null,
+      };
     }
 
-    return {
-      kind: "image",
-      pageCount: 1,
-    };
+        const documentPageCount =
+      typeof result.pageCount === "number" ? result.pageCount : null;
+
+    if (
+      result.kind === "document" &&
+      documentPageCount !== null &&
+      Number.isInteger(documentPageCount) &&
+      documentPageCount >= 1 &&
+      documentPageCount <= 10_000 &&
+      typeof result.draftId === "string" &&
+      result.draftId.length > 0 &&
+      typeof result.previewUrl === "string" &&
+      result.previewUrl.startsWith("/api/print-drafts/")
+    ) {
+      return {
+        kind: "document",
+        pageCount: documentPageCount,
+        draftId: result.draftId,
+        previewUrl: result.previewUrl,
+      };
+    }
+
+    throw new Error("Сервис проверки вернул некорректный результат.");
   }
 
-  /*
-   * Для документов API возвращает подготовленный PDF и передаёт
-   * число страниц через HTTP-заголовок.
-   * Сам PDF здесь не скачиваем: сервер повторит конвертацию при создании
-   * заказа, а браузеру нужно только число страниц для предварительного
-   * расчёта.
-   */
-  const pageCount = Number(response.headers.get("x-page-count"));
-
-  if (
-    !Number.isInteger(pageCount) ||
-    pageCount < 1 ||
-    pageCount > 10_000
-  ) {
-    throw new Error(
-      "Сервис проверки вернул некорректное количество страниц."
-    );
-  }
-
-  return {
-    kind: "document",
-    pageCount,
-  };
+  throw new Error("Сервис проверки вернул неожиданный формат ответа.");
 }
