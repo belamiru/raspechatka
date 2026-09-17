@@ -267,17 +267,33 @@ export function OrderFileList({
                   )}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onRemove(item.id);
-                  }}
-                  className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 focus:outline-none focus:ring-4 focus:ring-red-100"
-                  aria-label={`Удалить файл ${item.file.name}`}
-                >
-                  Удалить
-                </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  {item.status === "ready" &&
+                    item.kind === "document" &&
+                    item.previewUrl && (
+                      <a
+                        href={item.previewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(event) => event.stopPropagation()}
+                        className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-bold text-white transition hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-200"
+                        aria-label={`Открыть предпросмотр файла ${item.file.name} в новой вкладке`}
+                      >
+                        Предпросмотр
+                      </a>
+                    )}
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRemove(item.id);
+                    }}
+                    className="rounded-lg px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 focus:outline-none focus:ring-4 focus:ring-red-100"
+                    aria-label={`Удалить файл ${item.file.name}`}
+                  >
+                    Удалить
+                  </button>
+                </div>
               </div>
             </li>
           );
