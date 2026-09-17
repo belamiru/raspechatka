@@ -270,9 +270,9 @@ export function OrderFileList({
                 <div className="flex shrink-0 items-center gap-1">
                   {item.status === "ready" &&
                     item.kind === "document" &&
-                    item.previewUrl && (
+                    item.draftId && (
                       <a
-                        href={item.previewUrl}
+                        href={`/print-drafts/${item.draftId}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(event) => event.stopPropagation()}
