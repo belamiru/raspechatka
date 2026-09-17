@@ -373,10 +373,23 @@ export default function Home() {
       const formData = new FormData();
 
       for (const item of readyFiles) {
-        formData.append("files", item.file, item.file.name);
+        if (item.kind === "image") {
+          formData.append("imageFiles", item.file, item.file.name);
+        }
       }
 
-            formData.append(
+      formData.append(
+        "orderItems",
+        JSON.stringify(
+          readyFiles.map((item) => ({
+            fileId: item.id,
+            kind: item.kind,
+            ...(item.kind === "document" ? { draftId: item.draftId } : {}),
+          }))
+        )
+      );
+
+      formData.append(
         "fileSettings",
         JSON.stringify(
           readyFiles.map((item) => ({

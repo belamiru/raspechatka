@@ -1,20 +1,19 @@
 import { NextResponse } from "next/server";
-import {
-  analyzeDocumentFile,
-  validateSupportedFile,
-  type FileKind,
-} from "@/lib/converter";
+import { validateSupportedFile, type FileKind } from "@/lib/converter";
 import { getDb } from "@/lib/db";
-import {
-  uploadOrderFile,
-  uploadOrderFiles,
-} from "@/lib/yandex-disk";
+import { uploadOrderFile } from "@/lib/yandex-disk";
 import { getPrintPrice } from "@/lib/pricing";
 import {
   checkRateLimit,
   getRequestId,
   logAppError,
 } from "@/lib/security";
+import {
+  getOwnedPrintDraft,
+  getPrintDraftOwnerToken,
+  hashPrintDraftOwnerToken,
+  type PrintDraft,
+} from "@/lib/print-drafts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,10 +24,16 @@ const MAX_FILES_PER_ORDER = 8;
 const MAX_PAGE_COUNT = 10_000;
 
 type PreparedOrderItem = {
-  file: File;
   kind: FileKind;
   pageCount: number;
-  printPdf?: Uint8Array;
+  file?: File;
+  draft?: PrintDraft;
+};
+
+type SubmittedOrderItem = {
+  fileId: string;
+  kind: FileKind;
+  draftId?: string;
 };
 
 type SubmittedFileSettings = {
@@ -139,30 +144,6 @@ function textValue(formData: FormData, name: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function makePrintPdfName(fileName: string) {
-  const baseName = fileName.replace(/\.[^.]+$/, "").trim() || "document";
-
-  return `${baseName}.pdf`;
-}
-
-function getSubmittedFiles(formData: FormData) {
-  const files = formData
-    .getAll("files")
-    .filter((value): value is File => value instanceof File);
-
-  /*
-   * Временная обратная совместимость со старой версией формы,
-   * которая передавала один файл в поле "file".
-   */
-  if (files.length > 0) {
-    return files;
-  }
-
-  const legacyFile = formData.get("file");
-
-  return legacyFile instanceof File ? [legacyFile] : [];
-}
-
 function parseFileSettings(
   rawValue: string,
   expectedFileCount: number
@@ -257,6 +238,66 @@ function parseFileSettings(
   };
 }
 
+const DRAFT_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+class DraftUnavailableError extends Error {}
+
+function parseSubmittedOrderItems(
+  rawValue: string
+):
+  | { valid: true; items: SubmittedOrderItem[] }
+  | { valid: false; error: string } {
+  let parsedValue: unknown;
+
+  try {
+    parsedValue = JSON.parse(rawValue);
+  } catch {
+    return { valid: false, error: "Не удалось прочитать состав заказа." };
+  }
+
+  if (!Array.isArray(parsedValue) || parsedValue.length < 1) {
+    return { valid: false, error: "Добавьте хотя бы один файл для печати." };
+  }
+
+  if (parsedValue.length > MAX_FILES_PER_ORDER) {
+    return {
+      valid: false,
+      error: `За один заказ можно добавить не больше ${MAX_FILES_PER_ORDER} файлов.`,
+    };
+  }
+
+  const fileIds = new Set<string>();
+  const items: SubmittedOrderItem[] = [];
+
+  for (const value of parsedValue) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return { valid: false, error: "Некорректный состав заказа." };
+    }
+
+    const item = value as Record<string, unknown>;
+    const fileId = typeof item.fileId === "string" ? item.fileId.trim() : "";
+    const kind = item.kind;
+    const draftId = typeof item.draftId === "string" ? item.draftId.trim() : "";
+
+    if (!fileId || fileIds.has(fileId) || (kind !== "image" && kind !== "document")) {
+      return { valid: false, error: "Некорректный состав заказа." };
+    }
+
+    if (kind === "document" && !DRAFT_ID_PATTERN.test(draftId)) {
+      return {
+        valid: false,
+        error: "Документ нужно подготовить заново перед оформлением заказа.",
+      };
+    }
+
+    fileIds.add(fileId);
+    items.push({ fileId, kind, ...(kind === "document" ? { draftId } : {}) });
+  }
+
+  return { valid: true, items };
+}
+
 export async function POST(request: Request) {
   const requestId = getRequestId();
 
@@ -298,38 +339,38 @@ export async function POST(request: Request) {
       });
     }
 
-    const files = getSubmittedFiles(formData);
+    const parsedOrderItems = parseSubmittedOrderItems(
+      textValue(formData, "orderItems")
+    );
 
-    if (files.length < 1) {
+    if (!parsedOrderItems.valid) {
       return NextResponse.json(
-        {
-          error: "Сначала выберите хотя бы один файл для печати.",
-          requestId,
-        },
+        { error: parsedOrderItems.error, requestId },
         { status: 400 }
       );
     }
 
-    if (files.length > MAX_FILES_PER_ORDER) {
+    const submittedItems = parsedOrderItems.items;
+    const imageFiles = formData
+      .getAll("imageFiles")
+      .filter((value): value is File => value instanceof File);
+
+    if (imageFiles.length !== submittedItems.filter((item) => item.kind === "image").length) {
       return NextResponse.json(
-        {
-          error: `За один заказ можно добавить не больше ${MAX_FILES_PER_ORDER} файлов.`,
-          requestId,
-        },
+        { error: "Не удалось сопоставить изображения с позициями заказа.", requestId },
         { status: 400 }
       );
     }
 
     let totalSourceFileSize = 0;
-    const fileKinds: FileKind[] = [];
 
-    for (const file of files) {
+    for (const file of imageFiles) {
       const validation = validateSupportedFile(file);
 
-      if (!validation.valid) {
+      if (!validation.valid || validation.kind !== "image") {
         return NextResponse.json(
           {
-            error: `${file.name}: ${validation.error}`,
+            error: `${file.name}: ${validation.valid ? "ожидалось изображение JPG или PNG." : validation.error}`,
             requestId,
           },
           { status: 400 }
@@ -338,25 +379,17 @@ export async function POST(request: Request) {
 
       if (file.size > MAX_FILE_SIZE) {
         return NextResponse.json(
-          {
-            error: `${file.name}: размер файла не должен превышать 50 МБ.`,
-            requestId,
-          },
+          { error: `${file.name}: размер файла не должен превышать 50 МБ.`, requestId },
           { status: 400 }
         );
       }
 
       totalSourceFileSize += file.size;
-      fileKinds.push(validation.kind);
     }
 
     if (totalSourceFileSize > MAX_TOTAL_FILE_SIZE) {
       return NextResponse.json(
-        {
-          error:
-            "Общий размер файлов в заказе не должен превышать 200 МБ.",
-          requestId,
-        },
+        { error: "Общий размер изображений в заказе не должен превышать 200 МБ.", requestId },
         { status: 400 }
       );
     }
@@ -368,175 +401,127 @@ export async function POST(request: Request) {
 
     if (customerName.length < 2) {
       return NextResponse.json(
-        {
-          error: "Укажите имя.",
-          requestId,
-        },
+        { error: "Укажите имя.", requestId },
         { status: 400 }
       );
     }
 
     if (customerPhone.length < 6) {
       return NextResponse.json(
-        {
-          error: "Укажите корректный номер телефона.",
-          requestId,
-        },
+        { error: "Укажите корректный номер телефона.", requestId },
         { status: 400 }
       );
     }
 
-    /*
-     * В app/page.tsx fileSettings передаётся в том же порядке,
-     * в котором файлы добавляются в FormData.
-     *
-     * Сервер проверяет количество, структуру, диапазоны значений и
-     * уникальность идентификаторов. Расчёт цены в любом случае
-     * выполняется повторно на сервере.
-     */
     const parsedFileSettings = parseFileSettings(
       textValue(formData, "fileSettings"),
-      files.length
+      submittedItems.length
     );
 
     if (!parsedFileSettings.valid) {
       return NextResponse.json(
-        {
-          error: parsedFileSettings.error,
-          requestId,
-        },
+        { error: parsedFileSettings.error, requestId },
         { status: 400 }
       );
     }
 
-    const fileSettings = parsedFileSettings.settings;
-
-    /*
-     * Повторяем обработку документов на сервере: не доверяем числу
-     * страниц, которое ранее показал браузер.
-     *
-     * Для изображения — одна страница. Изображения принудительно
-     * печатаются односторонне, независимо от содержимого запроса.
-     */
+    const ownerToken = getPrintDraftOwnerToken(request);
     const preparedItems: Array<
       PreparedOrderItem & { settings: SubmittedFileSettings }
     > = [];
+    let imageIndex = 0;
 
-    for (const [index, file] of files.entries()) {
-      const kind = fileKinds[index];
-      const submittedSettings = fileSettings[index];
+    for (const [index, submittedItem] of submittedItems.entries()) {
+      const settings = parsedFileSettings.settings[index];
 
-      const settings: SubmittedFileSettings = {
-        ...submittedSettings,
-        printSides:
-          kind === "image" ? "one-sided" : submittedSettings.printSides,
-      };
-
-      if (kind === "image") {
-        preparedItems.push({
-          file,
-          kind,
-          pageCount: 1,
-          settings,
-        });
-
-        continue;
-      }
-
-      const analysis = await analyzeDocumentFile(file);
-
-      if (
-        !Number.isInteger(analysis.pageCount) ||
-        analysis.pageCount < 1 ||
-        analysis.pageCount > MAX_PAGE_COUNT
-      ) {
+      if (settings.fileId !== submittedItem.fileId) {
         return NextResponse.json(
-          {
-            error: `${file.name}: в подготовленном файле некорректное количество страниц.`,
-            requestId,
-          },
+          { error: "Не удалось сопоставить настройки с файлами заказа.", requestId },
           { status: 400 }
         );
       }
 
+      if (submittedItem.kind === "image") {
+        const file = imageFiles[imageIndex++];
+        preparedItems.push({
+          kind: "image",
+          file,
+          pageCount: 1,
+          settings: { ...settings, printSides: "one-sided" },
+        });
+        continue;
+      }
+
+      if (!ownerToken) {
+        return NextResponse.json(
+          { error: "Срок доступа к подготовленному документу истёк. Загрузите его снова.", requestId },
+          { status: 409 }
+        );
+      }
+
+      const draft = await getOwnedPrintDraft(submittedItem.draftId!, ownerToken);
+
+      if (!draft || draft.pageCount > MAX_PAGE_COUNT) {
+        return NextResponse.json(
+          { error: "Подготовленный документ больше недоступен. Загрузите его снова.", requestId },
+          { status: 409 }
+        );
+      }
+
       preparedItems.push({
-        file,
-        kind,
-        pageCount: analysis.pageCount,
-        printPdf: analysis.pdfBytes,
+        kind: "document",
+        draft,
+        pageCount: draft.pageCount,
         settings,
       });
     }
 
-    /*
-     * Каждая позиция рассчитывается самостоятельно.
-     * Двусторонняя печать уменьшает число физических листов, но не
-     * повышает стоимость печатаемых страниц.
-     */
-    const pricedItems = preparedItems.map((item) => {
-      const pricing = getPrintPrice({
+    const pricedItems = preparedItems.map((item) => ({
+      ...item,
+      pricing: getPrintPrice({
         paperFormat: item.settings.paperFormat,
         printSides: item.settings.printSides,
         pageCount: item.pageCount,
         copies: item.settings.copies,
-      });
-
-      return {
-        ...item,
-        pricing,
-      };
-    });
+      }),
+    }));
 
     const totalPrice = pricedItems.reduce(
       (total, item) => total + item.pricing.totalPrice,
       0
     );
-
     const orderNumber = createOrderNumber();
-
-    /*
-     * Документы сохраняются в двух вариантах:
-     * - original: исходный загруженный файл;
-     * - print-pdf: PDF, подготовленный для печати.
-     *
-     * Изображение сохраняется один раз — оно одновременно является и
-     * оригиналом, и файлом для печати.
-     */
     const uploadedItems = [];
 
     for (const item of pricedItems) {
       if (item.kind === "image") {
-        const original = await uploadOrderFile({
-          file: item.file,
-          orderNumber,
-        });
+        if (!item.file) {
+          throw new Error("Не найдено изображение для заказа.");
+        }
 
-        uploadedItems.push({
-          ...item,
-          original,
-          printFile: original,
-        });
-
+        const original = await uploadOrderFile({ file: item.file, orderNumber });
+        uploadedItems.push({ ...item, original, printFile: original });
         continue;
       }
 
-      if (!item.printPdf) {
-        throw new Error(
-          "Не найден подготовленный PDF для документа."
-        );
+      if (!item.draft) {
+        throw new Error("Не найден подготовленный документ для заказа.");
       }
-
-      const uploadedFiles = await uploadOrderFiles({
-        originalFile: item.file,
-        printPdf: item.printPdf,
-        printPdfName: makePrintPdfName(item.file.name),
-        orderNumber,
-      });
 
       uploadedItems.push({
         ...item,
-        original: uploadedFiles.original,
-        printFile: uploadedFiles.printPdf,
+        original: {
+          originalName: item.draft.originalFileName,
+          diskPath: item.draft.originalDiskPath,
+          fileSize: item.draft.originalFileSize,
+          mimeType: item.draft.originalMimeType,
+        },
+        printFile: {
+          originalName: item.draft.pdfFileName,
+          diskPath: item.draft.pdfDiskPath,
+          fileSize: item.draft.pdfFileSize,
+          mimeType: "application/pdf",
+        },
       });
     }
 
@@ -544,6 +529,33 @@ export async function POST(request: Request) {
 
     try {
       await client.query("BEGIN");
+
+      if (ownerToken) {
+        for (const item of pricedItems) {
+          if (!item.draft) {
+            continue;
+          }
+
+          const claimResult = await client.query(
+            `
+              UPDATE print_drafts
+              SET status = 'used', used_at = NOW()
+              WHERE id = $1
+                AND owner_token_hash = $2
+                AND status = 'ready'
+                AND expires_at > NOW()
+              RETURNING id;
+            `,
+            [item.draft.id, hashPrintDraftOwnerToken(ownerToken)]
+          );
+
+          if (claimResult.rowCount !== 1) {
+            throw new DraftUnavailableError(
+              "Подготовленный документ больше недоступен. Загрузите его снова."
+            );
+          }
+        }
+      }
 
       const orderResult = await client.query<{ id: string }>(
         `
@@ -634,6 +646,13 @@ export async function POST(request: Request) {
       client.release();
     }
   } catch (error) {
+    if (error instanceof DraftUnavailableError) {
+      return NextResponse.json(
+        { error: error.message, requestId },
+        { status: 409 }
+      );
+    }
+
         await logAppError({
           request,
           requestId,
