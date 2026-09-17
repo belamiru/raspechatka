@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
@@ -225,13 +224,20 @@ export function PrintDraftViewer({ draftId }: PrintDraftViewerProps) {
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-10">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-2 text-sm font-bold text-blue-700 transition hover:text-blue-900 focus:outline-none focus:ring-4 focus:ring-blue-200"
-        >
-          <span aria-hidden="true">←</span>
-          Вернуться к заказу
-        </Link>
+        <div>
+          <button
+            type="button"
+            onClick={() => window.close()}
+            className="inline-flex items-center gap-2 text-sm font-bold text-blue-700 transition hover:text-blue-900 focus:outline-none focus:ring-4 focus:ring-blue-200"
+          >
+            <span aria-hidden="true">×</span>
+            Закрыть предпросмотр
+          </button>
+
+          <p className="mt-2 text-xs text-slate-500">
+            Вернитесь к вкладке с заказом: загруженный файл и настройки сохранены там.
+          </p>
+        </div>
 
         <header className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
           <p className="text-sm font-bold text-blue-700">Предпросмотр документа</p>
@@ -255,12 +261,13 @@ export function PrintDraftViewer({ draftId }: PrintDraftViewerProps) {
           <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-6 text-red-900 shadow-sm">
             <h2 className="font-black">Предпросмотр недоступен</h2>
             <p className="mt-2 text-sm">{error}</p>
-            <Link
-              href="/"
+            <button
+              type="button"
+              onClick={() => window.close()}
               className="mt-4 inline-flex rounded-xl bg-red-700 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-800"
             >
-              Вернуться к заказу
-            </Link>
+              Закрыть предпросмотр
+            </button>
           </div>
         )}
 
