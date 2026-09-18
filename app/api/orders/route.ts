@@ -3,6 +3,7 @@ import { validateSupportedFile, type FileKind } from "@/lib/converter";
 import { getDb } from "@/lib/db";
 import { uploadOrderFile } from "@/lib/yandex-disk";
 import { getPrintPrice } from "@/lib/pricing";
+import { getPrintablePageCount, type PagePrintOverride } from "@/lib/print-settings";
 import {
   checkRateLimit,
   getRequestId,
@@ -41,6 +42,7 @@ type SubmittedFileSettings = {
   paperFormat: "A4" | "A3";
   copies: number;
   printSides: "one-sided" | "two-sided";
+  pageOverrides: Record<number, PagePrintOverride>;
 };
 
 let schemaReady: Promise<void> | null = null;
@@ -122,6 +124,9 @@ function ensureSchema() {
         ALTER TABLE order_items
         ADD COLUMN IF NOT EXISTS original_mime_type VARCHAR(120);
       `);
+
+      await db.query(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS printable_page_count INTEGER;`);
+      await db.query(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS page_overrides JSONB NOT NULL DEFAULT '{}'::jsonb;`);
     })().catch((error) => {
       schemaReady = null;
       throw error;
@@ -185,9 +190,10 @@ function parseFileSettings(
     const fileId =
       typeof value.fileId === "string" ? value.fileId.trim() : "";
 
-    const paperFormat = value.paperFormat;
+    const defaults = value.defaults;
     const copies = value.copies;
     const printSides = value.printSides;
+    const rawPageOverrides = value.pageOverrides;
 
     if (!fileId || fileIds.has(fileId)) {
       return {
@@ -196,11 +202,31 @@ function parseFileSettings(
       };
     }
 
-    if (paperFormat !== "A4" && paperFormat !== "A3") {
-      return {
-        valid: false,
-        error: "Выбран некорректный формат бумаги.",
-      };
+    if (!defaults || typeof defaults !== "object" || Array.isArray(defaults)) {
+      return { valid: false, error: "Выбран некорректный формат бумаги." };
+    }
+
+    const paperFormat = (defaults as Record<string, unknown>).paperFormat;
+    const colorMode = (defaults as Record<string, unknown>).colorMode;
+    if ((paperFormat !== "A4" && paperFormat !== "A3") || colorMode !== "black-and-white") {
+      return { valid: false, error: "Выбраны некорректные настройки печати." };
+    }
+
+    if (!rawPageOverrides || typeof rawPageOverrides !== "object" || Array.isArray(rawPageOverrides)) {
+      return { valid: false, error: "Некорректные настройки страниц." };
+    }
+
+    const pageOverrides: Record<number, PagePrintOverride> = {};
+    for (const [key, rawOverride] of Object.entries(rawPageOverrides as Record<string, unknown>)) {
+      const pageNumber = Number(key);
+      if (!Number.isInteger(pageNumber) || pageNumber < 1 || !rawOverride || typeof rawOverride !== "object" || Array.isArray(rawOverride)) {
+        return { valid: false, error: "Некорректные настройки страниц." };
+      }
+      const override = rawOverride as Record<string, unknown>;
+      if (override.pageNumber !== pageNumber || (override.included !== undefined && typeof override.included !== "boolean")) {
+        return { valid: false, error: "Некорректные настройки страниц." };
+      }
+      pageOverrides[pageNumber] = { pageNumber, ...(override.included === false ? { included: false } : {}) };
     }
 
     if (
@@ -226,9 +252,10 @@ function parseFileSettings(
 
     settings.push({
       fileId,
-      paperFormat,
+      paperFormat: paperFormat as "A4" | "A3",
       copies,
       printSides,
+      pageOverrides,
     });
   }
 
@@ -447,7 +474,7 @@ export async function POST(request: Request) {
           kind: "image",
           file,
           pageCount: 1,
-          settings: { ...settings, printSides: "one-sided" },
+          settings: { ...settings, printSides: "one-sided", pageOverrides: {} },
         });
         continue;
       }
@@ -468,12 +495,14 @@ export async function POST(request: Request) {
         );
       }
 
-      preparedItems.push({
-        kind: "document",
-        draft,
-        pageCount: draft.pageCount,
-        settings,
-      });
+      if (Object.keys(settings.pageOverrides).some((page) => Number(page) > draft.pageCount)) {
+        return NextResponse.json({ error: "Настройки содержат несуществующую страницу документа.", requestId }, { status: 400 });
+      }
+      if (getPrintablePageCount(draft.pageCount, { copies: settings.copies, printSides: settings.printSides, defaults: { paperFormat: settings.paperFormat, colorMode: "black-and-white" }, pageOverrides: settings.pageOverrides }) < 1) {
+        return NextResponse.json({ error: "Нельзя исключить все страницы документа.", requestId }, { status: 400 });
+      }
+
+      preparedItems.push({ kind: "document", draft, pageCount: draft.pageCount, settings });
     }
 
     const pricedItems = preparedItems.map((item) => ({
@@ -481,7 +510,7 @@ export async function POST(request: Request) {
       pricing: getPrintPrice({
         paperFormat: item.settings.paperFormat,
         printSides: item.settings.printSides,
-        pageCount: item.pageCount,
+        pageCount: item.kind === "document" ? getPrintablePageCount(item.pageCount, { copies: item.settings.copies, printSides: item.settings.printSides, defaults: { paperFormat: item.settings.paperFormat, colorMode: "black-and-white" }, pageOverrides: item.settings.pageOverrides }) : item.pageCount,
         copies: item.settings.copies,
       }),
     }));
@@ -599,6 +628,8 @@ export async function POST(request: Request) {
               original_mime_type,
               paper_format,
               page_count,
+              printable_page_count,
+              page_overrides,
               copies,
               print_sides,
               unit_price,
@@ -608,7 +639,7 @@ export async function POST(request: Request) {
             VALUES (
               $1, $2, $3, $4, $5,
               $6, $7, $8, $9,
-              $10, $11, $12, $13, $14, $15, $16
+              $10, $11, $12, $13, $14, $15, $16, $17, $18
             );
           `,
           [
@@ -623,6 +654,8 @@ export async function POST(request: Request) {
             item.original.mimeType,
             item.settings.paperFormat,
             item.pageCount,
+            item.pricing.quantity / item.settings.copies,
+            JSON.stringify(item.settings.pageOverrides),
             item.settings.copies,
             item.settings.printSides,
             item.pricing.effectiveUnitPrice,

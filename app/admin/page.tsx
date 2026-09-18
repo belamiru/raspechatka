@@ -23,6 +23,8 @@ type OrderRow = {
   mime_type: string | null;
   paper_format: string | null;
   page_count: number | null;
+  printable_page_count: number | null;
+  page_overrides: Record<string, { pageNumber: number; included?: boolean }> | null;
   copies: number | null;
   print_sides: string | null;
 };
@@ -61,6 +63,8 @@ export default async function AdminPage() {
       order_items.mime_type,
       order_items.paper_format,
       order_items.page_count,
+      order_items.printable_page_count,
+      order_items.page_overrides,
       order_items.copies,
       order_items.print_sides
     FROM orders
@@ -87,6 +91,8 @@ export default async function AdminPage() {
         mimeType: string | null;
         paperFormat: string;
         pageCount: number;
+        printablePageCount: number;
+        pageOverrides: Record<string, { pageNumber: number; included?: boolean }>;
         copies: number;
         printSides: string;
       }[];
@@ -124,6 +130,8 @@ export default async function AdminPage() {
         mimeType: row.mime_type,
         paperFormat: row.paper_format ?? "—",
         pageCount: row.page_count ?? 0,
+        printablePageCount: row.printable_page_count ?? row.page_count ?? 0,
+        pageOverrides: row.page_overrides ?? {},
         copies: row.copies ?? 0,
         printSides: row.print_sides ?? "one-sided",
       });

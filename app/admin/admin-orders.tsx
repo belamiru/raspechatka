@@ -17,6 +17,8 @@ type OrderFile = {
   mimeType: string | null;
   paperFormat: string;
   pageCount: number;
+  printablePageCount: number;
+  pageOverrides: Record<string, { pageNumber: number; included?: boolean }>;
   copies: number;
   printSides: string;
 };
@@ -111,6 +113,13 @@ function getSheetLabel(count: number) {
 
   return "листов";
 }
+function getExcludedPages(file: OrderFile) {
+  return Object.values(file.pageOverrides)
+    .filter((item) => item.included === false)
+    .map((item) => item.pageNumber)
+    .sort((a, b) => a - b);
+}
+
 export default function AdminOrders({
   initialOrders,
 }: {
@@ -466,6 +475,12 @@ export default function AdminOrders({
                                   ? "двусторонняя печать"
                                   : "односторонняя печать"}
                               </p>
+
+                              {getExcludedPages(file).length > 0 && (
+                                <p className="mt-2 text-sm font-bold text-red-700">
+                                  Печатать: {file.printablePageCount} из {file.pageCount} стр. · Не печатать: стр. {getExcludedPages(file).join(", ")}
+                                </p>
+                              )}
                             </div>
 
                             {file.diskPath ? (

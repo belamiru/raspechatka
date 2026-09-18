@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { OrderFileDropzone } from "@/components/order-file-dropzone";
 import {
   OrderFileList,
@@ -16,6 +16,7 @@ import {
 import { SiteFooter } from "@/components/site-footer";
 import { reachMetrikaGoal } from "@/lib/metrika";
 import { getPrintPrice } from "@/lib/pricing";
+import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageCount } from "@/lib/print-settings";
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
 
 function makeFileId() {
@@ -76,21 +77,17 @@ export default function Home() {
   const itemPricings = useMemo(
     () =>
       readyFiles.map((file) => {
-        const settings = file.printSettings ?? {
-          paperFormat: "A4" as const,
-          copies: 1,
-          printSides: "one-sided" as const,
-        };
+        const settings = file.printSettings ?? DEFAULT_PRINT_SETTINGS;
 
         return {
           file,
           pricing: getPrintPrice({
-            paperFormat: settings.paperFormat,
+            paperFormat: settings.defaults.paperFormat,
             printSides:
               file.kind === "image"
                 ? "one-sided"
                 : settings.printSides,
-            pageCount: file.pageCount ?? 0,
+            pageCount: file.kind === "document" ? getPrintablePageCount(file.pageCount ?? 0, settings) : (file.pageCount ?? 0),
             copies: settings.copies,
           }),
         };
@@ -304,9 +301,9 @@ export default function Home() {
         draftId: null,
         previewUrl: null,
         printSettings: {
-          paperFormat: "A4",
-          copies: 1,
-          printSides: "one-sided",
+          ...DEFAULT_PRINT_SETTINGS,
+          defaults: { ...DEFAULT_PRINT_SETTINGS.defaults },
+          pageOverrides: {},
         },
       };
     });
@@ -319,6 +316,19 @@ export default function Home() {
       void analyzeAddedFile(item.id, item.file);
     }
   }
+
+  useEffect(() => {
+    const sync = () => setFiles((current) => current.map((file) => {
+      if (file.kind !== "document" || !file.draftId) return file;
+      try {
+        const raw = window.localStorage.getItem(getDraftSettingsStorageKey(file.draftId));
+        return raw ? { ...file, printSettings: JSON.parse(raw) } : file;
+      } catch { return file; }
+    }));
+    window.addEventListener("storage", sync);
+    window.addEventListener("focus", sync);
+    return () => { window.removeEventListener("storage", sync); window.removeEventListener("focus", sync); };
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -394,12 +404,10 @@ export default function Home() {
         JSON.stringify(
           readyFiles.map((item) => ({
             fileId: item.id,
-            paperFormat: item.printSettings?.paperFormat ?? "A4",
             copies: item.printSettings?.copies ?? 1,
-            printSides:
-              item.kind === "image"
-                ? "one-sided"
-                : (item.printSettings?.printSides ?? "one-sided"),
+            printSides: item.kind === "image" ? "one-sided" : (item.printSettings?.printSides ?? "one-sided"),
+            defaults: item.printSettings?.defaults ?? DEFAULT_PRINT_SETTINGS.defaults,
+            pageOverrides: item.kind === "document" ? (item.printSettings?.pageOverrides ?? {}) : {},
           }))
         )
       );

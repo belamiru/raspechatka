@@ -1,9 +1,7 @@
 "use client";
 
-import type {
-  FilePrintSettings,
-  OrderFileListItem,
-} from "@/components/order-file-list";
+import type { OrderFileListItem } from "@/components/order-file-list";
+import { DEFAULT_PRINT_SETTINGS, type FilePrintSettings } from "@/lib/print-settings";
 
 type PrintSettingsPanelProps = {
   selectedFile: OrderFileListItem | null;
@@ -13,12 +11,6 @@ type PrintSettingsPanelProps = {
     settings: FilePrintSettings
   ) => void;
   onApplyToAll: (settings: FilePrintSettings) => void;
-};
-
-const DEFAULT_PRINT_SETTINGS: FilePrintSettings = {
-  paperFormat: "A4",
-  copies: 1,
-  printSides: "one-sided",
 };
 
 function getFileKindLabel(item: OrderFileListItem) {
@@ -74,6 +66,8 @@ export function PrintSettingsPanel({
     const nextSettings: FilePrintSettings = {
       ...settings,
       ...changes,
+      defaults: { ...settings.defaults, ...(changes.defaults ?? {}) },
+      pageOverrides: changes.pageOverrides ?? settings.pageOverrides,
     };
 
     /*
@@ -154,13 +148,13 @@ export function PrintSettingsPanel({
 
           <div className="mt-3 grid grid-cols-2 gap-2">
             {(["A4", "A3"] as const).map((paperFormat) => {
-              const isSelected = settings.paperFormat === paperFormat;
+              const isSelected = settings.defaults.paperFormat === paperFormat;
 
               return (
                 <button
                   key={paperFormat}
                   type="button"
-                  onClick={() => changeSettings({ paperFormat })}
+                  onClick={() => changeSettings({ defaults: { ...settings.defaults, paperFormat } })}
                   className={`rounded-xl border px-4 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                     isSelected
                       ? "border-blue-700 bg-blue-700 text-white"

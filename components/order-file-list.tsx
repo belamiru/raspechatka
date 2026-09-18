@@ -4,17 +4,12 @@ import {
   formatFileSize,
   type ClientFileKind,
 } from "@/lib/client-file-analysis";
-import type { PaperFormat, PrintSides } from "@/lib/pricing";
+import { DEFAULT_PRINT_SETTINGS, getExcludedPages, getPrintablePageCount, type FilePrintSettings } from "@/lib/print-settings";
+export type { FilePrintSettings } from "@/lib/print-settings";
 import { FileTypeIcon } from "@/components/file-type-icon";
 import { ImageFileThumbnail } from "@/components/image-file-thumbnail";
 
 export type OrderFileStatus = "analyzing" | "ready" | "error";
-
-export type FilePrintSettings = {
-  paperFormat: PaperFormat;
-  copies: number;
-  printSides: PrintSides;
-};
 
 export type OrderFileListItem = {
   id: string;
@@ -48,12 +43,6 @@ type OrderFileListProps = {
    */
   selectedFileId?: string | null;
   onSelectFile?: (id: string) => void;
-};
-
-const DEFAULT_PRINT_SETTINGS: FilePrintSettings = {
-  paperFormat: "A4",
-  copies: 1,
-  printSides: "one-sided",
 };
 
 function getKindLabel(kind: ClientFileKind | null) {
@@ -107,9 +96,9 @@ function getFileSettingsSummary(item: OrderFileListItem) {
   const printSides =
     item.kind === "image" ? "one-sided" : settings.printSides;
 
-  return `${settings.paperFormat} · ${settings.copies} ${
-    settings.copies === 1 ? "копия" : "копии"
-  } · ${getPrintSidesLabel(printSides)}`;
+  const excluded = getExcludedPages(settings);
+  const printable = getPrintablePageCount(item.pageCount ?? 0, settings);
+  return `${settings.defaults.paperFormat} · ${settings.copies} ${settings.copies === 1 ? "копия" : "копии"} · ${getPrintSidesLabel(printSides)}${excluded.length ? ` · печатать ${printable} из ${item.pageCount ?? 0} стр.` : ""}`;
 }
 
 export function OrderFileList({
