@@ -234,11 +234,14 @@ export async function getExpiredPrintDrafts(limit = 100) {
 export async function deleteExpiredPrintDraft(draftId: string) {
   await ensurePrintDraftSchema();
 
-  await getDb().query(
+  const result = await getDb().query(
     `
       DELETE FROM print_drafts
-      WHERE id = $1 AND status = 'ready' AND expires_at <= NOW();
+      WHERE id = $1 AND status = 'ready' AND expires_at <= NOW()
+      RETURNING id;
     `,
     [draftId]
   );
+
+  return result.rowCount === 1;
 }

@@ -324,3 +324,26 @@ export async function uploadPrintDraftFiles({
 
   return { original, printPdf: printPdfFile };
 }
+
+
+/**
+ * Deletes a private file from Yandex Disk. A missing file is treated as
+ * successfully deleted so an interrupted cleanup can safely be retried.
+ */
+export async function deleteDiskFile(diskPath: string) {
+  const { token } = getSettings();
+  const response = await fetch(
+    `${API_URL}/resources?${new URLSearchParams({ path: diskPath })}`,
+    {
+      method: "DELETE",
+      headers: headers(token),
+    }
+  );
+
+  // 202 — deletion accepted, 204 — already deleted, 404 — absent.
+  if (response.status === 202 || response.status === 204 || response.status === 404) {
+    return;
+  }
+
+  throw new Error("Не удалось удалить файл черновика с Яндекс Диска.");
+}

@@ -119,6 +119,8 @@ export default function AdminOrders({
   const router = useRouter();
   const [orders, setOrders] = useState(initialOrders);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [isCleaningDrafts, setIsCleaningDrafts] = useState(false);
+  const [cleanupMessage, setCleanupMessage] = useState("");
   const [error, setError] = useState("");
 
   async function changeStatus(id: string, status: OrderStatus) {
@@ -155,6 +157,51 @@ export default function AdminOrders({
     }
   }
 
+  async function cleanupExpiredDrafts() {
+    const confirmed = window.confirm(
+      "Удалить с Яндекс Диска все просроченные неиспользованные черновики? Файлы оформленных заказов затронуты не будут."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setError("");
+    setCleanupMessage("");
+    setIsCleaningDrafts(true);
+
+    try {
+      const response = await fetch("/api/admin/print-drafts/cleanup", {
+        method: "POST",
+      });
+      const result = (await response.json().catch(() => null)) as {
+        found?: number;
+        deleted?: number;
+        failed?: number;
+        hasMore?: boolean;
+        error?: string;
+      } | null;
+
+      if (!response.ok) {
+        setError(result?.error ?? "Не удалось очистить черновики.");
+        return;
+      }
+
+      const suffix = result?.hasMore
+        ? " Обработана первая сотня; нажмите кнопку ещё раз для продолжения."
+        : "";
+      setCleanupMessage(
+        result?.found === 0
+          ? "Просроченных черновиков для удаления нет."
+          : `Удалено черновиков: ${result?.deleted ?? 0}. Не удалось удалить: ${result?.failed ?? 0}.${suffix}`
+      );
+    } catch {
+      setError("Ошибка соединения. Черновики не очищены.");
+    } finally {
+      setIsCleaningDrafts(false);
+    }
+  }
+
   async function logout() {
     await fetch("/api/admin/logout", { method: "POST" });
     router.push("/admin/login");
@@ -172,7 +219,16 @@ export default function AdminOrders({
             <h1 className="text-2xl font-black">Заказы</h1>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={cleanupExpiredDrafts}
+              disabled={isCleaningDrafts}
+              className="rounded-xl border border-red-200 px-4 py-2 text-sm font-bold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isCleaningDrafts ? "Очистка…" : "Очистить черновики"}
+            </button>
+
             <a
               href="/"
               target="_blank"
@@ -222,6 +278,12 @@ export default function AdminOrders({
         {error && (
           <p className="mb-5 rounded-xl bg-red-50 p-4 text-sm font-medium text-red-700">
             {error}
+          </p>
+        )}
+
+        {cleanupMessage && (
+          <p className="mb-5 rounded-xl bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
+            {cleanupMessage}
           </p>
         )}
 
