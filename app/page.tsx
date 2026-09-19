@@ -19,6 +19,69 @@ import { getPrintPriceForPages } from "@/lib/pricing";
 import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageFormats } from "@/lib/print-settings";
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
 
+
+type PriceTab = "black-and-white" | "color" | "solid-color";
+
+type PriceTable = {
+  label: string;
+  shortLabel: string;
+  description: string;
+  accent: string;
+  tiers: { quantity: string; a4: number }[];
+};
+
+const PRICE_TABLES: Record<PriceTab, PriceTable> = {
+  "black-and-white": {
+    label: "Чёрно-белая печать",
+    shortLabel: "Ч/б печать",
+    description:
+      "Цена рассчитывается отдельно для каждого файла с учётом формата, числа страниц и копий. Для A3 цена ×2.",
+    accent: "blue",
+    tiers: [
+      { quantity: "1–10", a4: 20 },
+      { quantity: "11–25", a4: 18 },
+      { quantity: "26–75", a4: 16 },
+      { quantity: "76–200", a4: 14 },
+      { quantity: "201–500", a4: 11 },
+      { quantity: "От 501", a4: 8 },
+    ],
+  },
+  color: {
+    label: "Цветная печать",
+    shortLabel: "Цветная",
+    description:
+      "Для документов, презентаций, таблиц, графиков и макетов с обычной цветной насыщенностью. Для A3 цена ×2.",
+    accent: "violet",
+    tiers: [
+      { quantity: "1–9", a4: 60 },
+      { quantity: "10–24", a4: 55 },
+      { quantity: "25–49", a4: 50 },
+      { quantity: "50–99", a4: 45 },
+      { quantity: "100–249", a4: 40 },
+      { quantity: "250–499", a4: 35 },
+      { quantity: "От 500", a4: 30 },
+    ],
+  },
+  "solid-color": {
+    label: "Цветная печать — сплошная заливка",
+    shortLabel: "Сплошная заливка",
+    description:
+      "Для макетов с плотным цветным фоном, крупными фотографиями и насыщенными рекламными изображениями. Для A3 цена ×2.",
+    accent: "fuchsia",
+    tiers: [
+      { quantity: "1–9", a4: 120 },
+      { quantity: "10–24", a4: 110 },
+      { quantity: "25–49", a4: 100 },
+      { quantity: "50–99", a4: 90 },
+      { quantity: "100–249", a4: 80 },
+      { quantity: "250–499", a4: 70 },
+      { quantity: "От 500", a4: 60 },
+    ],
+  },
+};
+
+const PRICE_TABS: PriceTab[] = ["black-and-white", "color", "solid-color"];
+
 function makeFileId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -33,6 +96,7 @@ function makeFileKey(file: File) {
 
 export default function Home() {
   const [files, setFiles] = useState<OrderFileListItem[]>([]);
+  const [activePriceTab, setActivePriceTab] = useState<PriceTab>("black-and-white");
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
 
   const [customerName, setCustomerName] = useState("");
@@ -668,77 +732,102 @@ export default function Home() {
 
             <div className="mt-8 border-t border-slate-100 pt-8">
               <h2 className="text-2xl font-bold">2. Стоимость печати</h2>
-              <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
-                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className="text-sm font-bold text-slate-800">
-                    Объёмные скидки на чёрно-белую печать
-                  </p>
 
-                  <p className="mt-1 text-xs leading-5 text-slate-500">
-                    Цена рассчитывается отдельно для каждого файла с учётом формата,
-                      числа страниц и копий. Для A3 цена ×2. Двусторонняя печать
-                      уменьшает число физических листов, но не меняет стоимость печати
-                      страниц.
-                  </p>
+              <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                <div
+                  className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 p-2"
+                  role="tablist"
+                  aria-label="Тип печати"
+                >
+                  {PRICE_TABS.map((tab) => {
+                    const isActive = activePriceTab === tab;
+                    const table = PRICE_TABLES[tab];
+
+                    return (
+                      <button
+                        key={tab}
+                        type="button"
+                        role="tab"
+                        id={`price-tab-${tab}`}
+                        aria-controls={`price-panel-${tab}`}
+                        aria-selected={isActive}
+                        onClick={() => setActivePriceTab(tab)}
+                        className={`min-h-11 shrink-0 rounded-2xl px-4 py-2.5 text-sm font-bold transition sm:px-5 ${
+                          isActive
+                            ? "bg-slate-900 text-white shadow-sm"
+                            : "text-slate-600 hover:bg-white hover:text-slate-900"
+                        }`}
+                      >
+                        <span className="sm:hidden">{table.shortLabel}</span>
+                        <span className="hidden sm:inline">{table.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-left text-xs sm:text-sm">
-                    <thead className="bg-white text-slate-500">
-                      <tr>
-                        <th className="px-4 py-3 font-semibold">Тираж</th>
-                        <th className="px-4 py-3 font-semibold">
-                          A4 / 1 сторона
-                        </th>
-                        <th className="px-4 py-3 font-semibold">
-                          A3 / 1 сторона
-                        </th>
-                      </tr>
-                    </thead>
+                {PRICE_TABS.map((tab) => {
+                  const isActive = activePriceTab === tab;
+                  const table = PRICE_TABLES[tab];
+                  const isBlackAndWhite = table.accent === "blue";
+                  const accentClass = isBlackAndWhite
+                    ? "text-blue-700"
+                    : table.accent === "violet"
+                      ? "text-violet-700"
+                      : "text-fuchsia-700";
 
-                    <tbody className="divide-y divide-slate-100 text-slate-700">
-                      <tr>
-                        <td className="px-4 py-3">1–10</td>
-                        <td className="px-4 py-3">20 ₽</td>
-                        <td className="px-4 py-3">40 ₽</td>
-                      </tr>
+                  return (
+                    <div
+                      key={tab}
+                      id={`price-panel-${tab}`}
+                      role="tabpanel"
+                      aria-labelledby={`price-tab-${tab}`}
+                      hidden={!isActive}
+                      className="p-4 sm:p-6"
+                    >
+                      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className={`text-base font-bold ${accentClass}`}>
+                            {table.label}
+                          </p>
+                          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500 sm:text-sm">
+                            {table.description}
+                          </p>
+                        </div>
+                        <span className="w-fit rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
+                          Цена за 1 сторону
+                        </span>
+                      </div>
 
-                      <tr>
-                        <td className="px-4 py-3">11–25</td>
-                        <td className="px-4 py-3">18 ₽</td>
-                        <td className="px-4 py-3">36 ₽</td>
-                      </tr>
-
-                      <tr>
-                        <td className="px-4 py-3">26–75</td>
-                        <td className="px-4 py-3">16 ₽</td>
-                        <td className="px-4 py-3">32 ₽</td>
-                      </tr>
-
-                      <tr>
-                        <td className="px-4 py-3">76–200</td>
-                        <td className="px-4 py-3">14 ₽</td>
-                        <td className="px-4 py-3">28 ₽</td>
-                      </tr>
-
-                      <tr>
-                        <td className="px-4 py-3">201–500</td>
-                        <td className="px-4 py-3">11 ₽</td>
-                        <td className="px-4 py-3">22 ₽</td>
-                      </tr>
-
-                      <tr>
-                        <td className="px-4 py-3">От 501</td>
-                        <td className="px-4 py-3 font-bold text-blue-700">
-                          8 ₽
-                        </td>
-                        <td className="px-4 py-3 font-bold text-blue-700">
-                          16 ₽
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+                      <div className="overflow-x-auto rounded-2xl border border-slate-100">
+                        <table className="min-w-full text-left text-xs sm:text-sm">
+                          <thead className="bg-slate-50 text-slate-500">
+                            <tr>
+                              <th className="px-4 py-3 font-semibold">Тираж</th>
+                              <th className="px-4 py-3 font-semibold">A4</th>
+                              <th className="px-4 py-3 font-semibold">A3</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 text-slate-700">
+                            {table.tiers.map((tier, index) => {
+                              const isLast = index === table.tiers.length - 1;
+                              return (
+                                <tr key={tier.quantity} className={isLast ? "bg-slate-50/70" : ""}>
+                                  <td className="px-4 py-3 font-medium">{tier.quantity}</td>
+                                  <td className={`px-4 py-3 ${isLast ? `font-bold ${accentClass}` : ""}`}>
+                                    {tier.a4} ₽
+                                  </td>
+                                  <td className={`px-4 py-3 ${isLast ? `font-bold ${accentClass}` : ""}`}>
+                                    {tier.a4 * 2} ₽
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
