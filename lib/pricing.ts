@@ -134,3 +134,38 @@ export function getPrintPrice({
     physicalSheetUnitPrice,
   };
 }
+
+/** Calculates an item with a potentially different A4/A3 format per printed page. */
+export function getPrintPriceForPages({
+  pageFormats,
+  printSides,
+  copies,
+}: {
+  pageFormats: PaperFormat[];
+  printSides: PrintSides;
+  copies: number;
+}) {
+  const printablePages = Math.max(1, pageFormats.length);
+  const quantity = printablePages * Math.max(1, copies);
+  const tier = PRICE_TIERS.find((item) => item.to === null || (quantity >= item.from && quantity <= item.to)) ?? PRICE_TIERS[0];
+  const baseUnitPrice = tier.a4OneSidedPrice;
+  const totalPrice = pageFormats.reduce(
+    (total, paperFormat) => total + baseUnitPrice * (paperFormat === "A3" ? 2 : 1),
+    0
+  ) * Math.max(1, copies);
+  const sheetsPerCopy = printSides === "two-sided" ? Math.ceil(printablePages / 2) : printablePages;
+
+  return {
+    quantity,
+    tier,
+    baseUnitPrice,
+    effectiveUnitPrice: baseUnitPrice,
+    formatMultiplier: 1,
+    sidesMultiplier: 1,
+    priceMultiplier: 1,
+    totalPrice,
+    sheetsPerCopy,
+    physicalSheetQuantity: sheetsPerCopy * Math.max(1, copies),
+    physicalSheetUnitPrice: baseUnitPrice * (printSides === "two-sided" ? 2 : 1),
+  };
+}

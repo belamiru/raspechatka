@@ -15,8 +15,8 @@ import {
 } from "@/lib/client-file-analysis";
 import { SiteFooter } from "@/components/site-footer";
 import { reachMetrikaGoal } from "@/lib/metrika";
-import { getPrintPrice } from "@/lib/pricing";
-import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageCount } from "@/lib/print-settings";
+import { getPrintPriceForPages } from "@/lib/pricing";
+import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageFormats } from "@/lib/print-settings";
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
 
 function makeFileId() {
@@ -81,13 +81,11 @@ export default function Home() {
 
         return {
           file,
-          pricing: getPrintPrice({
-            paperFormat: settings.defaults.paperFormat,
-            printSides:
-              file.kind === "image"
-                ? "one-sided"
-                : settings.printSides,
-            pageCount: file.kind === "document" ? getPrintablePageCount(file.pageCount ?? 0, settings) : (file.pageCount ?? 0),
+          pricing: getPrintPriceForPages({
+            pageFormats: file.kind === "document"
+              ? getPrintablePageFormats(file.pageCount ?? 0, settings)
+              : [settings.defaults.paperFormat],
+            printSides: file.kind === "image" ? "one-sided" : settings.printSides,
             copies: settings.copies,
           }),
         };

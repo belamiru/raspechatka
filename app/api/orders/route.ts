@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { validateSupportedFile, type FileKind } from "@/lib/converter";
 import { getDb } from "@/lib/db";
 import { uploadOrderFile } from "@/lib/yandex-disk";
-import { getPrintPrice } from "@/lib/pricing";
-import { getPrintablePageCount, type PagePrintOverride } from "@/lib/print-settings";
+import { getPrintPriceForPages } from "@/lib/pricing";
+import { getPrintablePageCount, getPrintablePageFormats, type PagePrintOverride } from "@/lib/print-settings";
 import {
   checkRateLimit,
   getRequestId,
@@ -223,10 +223,11 @@ function parseFileSettings(
         return { valid: false, error: "Некорректные настройки страниц." };
       }
       const override = rawOverride as Record<string, unknown>;
-      if (override.pageNumber !== pageNumber || (override.included !== undefined && typeof override.included !== "boolean")) {
+      const pageFormat = override.paperFormat;
+      if (override.pageNumber !== pageNumber || (override.included !== undefined && typeof override.included !== "boolean") || (pageFormat !== undefined && pageFormat !== "A4" && pageFormat !== "A3")) {
         return { valid: false, error: "Некорректные настройки страниц." };
       }
-      pageOverrides[pageNumber] = { pageNumber, ...(override.included === false ? { included: false } : {}) };
+      pageOverrides[pageNumber] = { pageNumber, ...(override.included === false ? { included: false } : {}), ...(pageFormat ? { paperFormat: pageFormat } : {}) };
     }
 
     if (
@@ -507,10 +508,11 @@ export async function POST(request: Request) {
 
     const pricedItems = preparedItems.map((item) => ({
       ...item,
-      pricing: getPrintPrice({
-        paperFormat: item.settings.paperFormat,
+      pricing: getPrintPriceForPages({
+        pageFormats: item.kind === "document"
+          ? getPrintablePageFormats(item.pageCount, { copies: item.settings.copies, printSides: item.settings.printSides, defaults: { paperFormat: item.settings.paperFormat, colorMode: "black-and-white" }, pageOverrides: item.settings.pageOverrides })
+          : [item.settings.paperFormat],
         printSides: item.settings.printSides,
-        pageCount: item.kind === "document" ? getPrintablePageCount(item.pageCount, { copies: item.settings.copies, printSides: item.settings.printSides, defaults: { paperFormat: item.settings.paperFormat, colorMode: "black-and-white" }, pageOverrides: item.settings.pageOverrides }) : item.pageCount,
         copies: item.settings.copies,
       }),
     }));

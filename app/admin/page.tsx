@@ -24,7 +24,7 @@ type OrderRow = {
   paper_format: string | null;
   page_count: number | null;
   printable_page_count: number | null;
-  page_overrides: Record<string, { pageNumber: number; included?: boolean }> | null;
+  page_overrides: Record<string, { pageNumber: number; included?: boolean; paperFormat?: "A4" | "A3" }> | null;
   copies: number | null;
   print_sides: string | null;
 };
@@ -92,7 +92,7 @@ export default async function AdminPage() {
         paperFormat: string;
         pageCount: number;
         printablePageCount: number;
-        pageOverrides: Record<string, { pageNumber: number; included?: boolean }>;
+        pageOverrides: Record<string, { pageNumber: number; included?: boolean; paperFormat?: "A4" | "A3" }>;
         copies: number;
         printSides: string;
       }[];

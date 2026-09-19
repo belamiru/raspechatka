@@ -18,7 +18,7 @@ type OrderFile = {
   paperFormat: string;
   pageCount: number;
   printablePageCount: number;
-  pageOverrides: Record<string, { pageNumber: number; included?: boolean }>;
+  pageOverrides: Record<string, { pageNumber: number; included?: boolean; paperFormat?: "A4" | "A3" }>;
   copies: number;
   printSides: string;
 };
@@ -116,6 +116,13 @@ function getSheetLabel(count: number) {
 function getExcludedPages(file: OrderFile) {
   return Object.values(file.pageOverrides)
     .filter((item) => item.included === false)
+    .map((item) => item.pageNumber)
+    .sort((a, b) => a - b);
+}
+
+function getA3Pages(file: OrderFile) {
+  return Object.values(file.pageOverrides)
+    .filter((item) => item.included !== false && item.paperFormat === "A3")
     .map((item) => item.pageNumber)
     .sort((a, b) => a - b);
 }
@@ -459,7 +466,7 @@ export default function AdminOrders({
                               <p className="mt-2 text-sm text-slate-600">
                                 Файл {index + 1} · {file.paperFormat} · {file.pageCount} стр. ·{" "}
                                 {getPhysicalSheetCount({
-                                  pageCount: file.pageCount,
+                                  pageCount: file.printablePageCount,
                                   copies: file.copies,
                                   printSides: file.printSides,
                                 })}{" "}
@@ -479,6 +486,12 @@ export default function AdminOrders({
                               {getExcludedPages(file).length > 0 && (
                                 <p className="mt-2 text-sm font-bold text-red-700">
                                   Печатать: {file.printablePageCount} из {file.pageCount} стр. · Не печатать: стр. {getExcludedPages(file).join(", ")}
+                                </p>
+                              )}
+
+                              {getA3Pages(file).length > 0 && (
+                                <p className="mt-1 text-sm font-bold text-amber-800">
+                                  A3: стр. {getA3Pages(file).join(", ")} · Остальные: {file.paperFormat}
                                 </p>
                               )}
                             </div>
