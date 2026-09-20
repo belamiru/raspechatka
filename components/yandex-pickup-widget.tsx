@@ -11,10 +11,10 @@ declare global {
 export type YandexPickupPoint = {
   id: string;
   address: string;
-  type: "pickup_point" | "terminal";
+  type: "pickup_point" | "terminal" | "unknown";
 };
 
-const WIDGET_URL = "https://widget-pvz.dostavka.yandex.net/widget.js";
+const WIDGET_URL = "https://widget-pvz.dostavka.yandex.net/widget.js?v=2";
 // This is our origin platform station, not the destination selected by a customer.
 const SOURCE_PLATFORM_STATION = "019e06631c07764c8cf4bc2ede9c2284";
 
@@ -46,9 +46,12 @@ export function YandexPickupWidget({
       if (!detail || typeof detail !== "object" || Array.isArray(detail)) return;
       const value = detail as Record<string, unknown>;
       const id = typeof value.id === "string" ? value.id.trim() : "";
-      const type = value.type === "pickup_point" || value.type === "terminal" ? value.type : null;
+      const type = value.type === "pickup_point" || value.type === "terminal"
+        ? value.type
+        : "unknown";
       const address = readAddress(value);
-      if (id && type && address) onSelect({ id, type, address });
+
+      if (id && address) onSelect({ id, type, address });
     };
     const start = () => {
       if (initialized.current || !window.YaDelivery) return;
@@ -61,13 +64,9 @@ export function YandexPickupWidget({
           source_platform_station: SOURCE_PLATFORM_STATION,
           physical_dims_weight_gross: weightGrams,
           // Delivery API integration will calculate the final price in the next step.
-          delivery_price: "уточняется",
-          delivery_term: "уточняется",
           show_select_button: true,
           filter: {
             type: ["pickup_point", "terminal"],
-            payment_methods: ["already_paid", "card_on_receipt"],
-            payment_methods_filter: "or",
           },
         },
       });

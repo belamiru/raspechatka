@@ -67,7 +67,11 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
         <fieldset className="rounded-xl border border-slate-200 p-4"><legend className="font-bold">Получение</legend><div className="mt-3 space-y-3">
           <label className="flex cursor-pointer gap-2"><input type="radio" name="fulfillment" checked={method === "pickup"} onChange={() => { setMethod("pickup"); setPoint(null); }} />Самовывоз — бесплатно</label>
           <label className="flex cursor-pointer gap-2"><input type="radio" name="fulfillment" checked={method === "yandex_pickup_point"} onChange={() => setMethod("yandex_pickup_point")} />Доставка в ПВЗ Яндекс Доставки</label>
-          {method === "yandex_pickup_point" && <><p className="text-sm text-slate-600">Выберите удобный ПВЗ или постамат. Стоимость доставки уточняется — заявка в Яндекс Доставке пока не создаётся.</p><YandexPickupWidget weightGrams={order.package_weight_grams ?? 50} onSelect={selectPoint} />{point && <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">Выбрано: {point.address} · {point.type === "terminal" ? "постамат" : "ПВЗ"}</p>}</>}
+          {method === "yandex_pickup_point" && <><p className="text-sm text-slate-600">Выберите удобный ПВЗ или постамат. Стоимость доставки уточняется — заявка в Яндекс Доставке пока не создаётся.</p><YandexPickupWidget weightGrams={order.package_weight_grams ?? 50} onSelect={selectPoint} />{point && <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">Выбрано: {point.address} · {point.type === "terminal"
+  ? "постамат"
+  : point.type === "pickup_point"
+    ? "ПВЗ"
+    : "пункт выдачи"}</p>}</>}
         </div></fieldset>
         <fieldset className="rounded-xl border border-slate-200 p-4"><legend className="font-bold">Оплата</legend><label className="flex items-center gap-2"><input type="radio" name="payment" checked readOnly />При получении</label>{method === "yandex_pickup_point" && <p className="mt-2 text-sm text-amber-800">Временный вариант до подключения оплаты картой и СБП.</p>}</fieldset>
         {error && <p role="alert" className="text-red-700">{error}</p>}

@@ -51,7 +51,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       pickupPointId = typeof point.id === "string" ? point.id.trim() : "";
       pickupPointAddress = typeof point.address === "string" ? point.address.trim() : "";
       pickupPointType = typeof point.type === "string" ? point.type.trim() : "";
-      if (!pickupPointId || pickupPointId.length > 120 || !pickupPointAddress || pickupPointAddress.length > 500 || !["pickup_point", "terminal"].includes(pickupPointType)) {
+      if (!pickupPointId || pickupPointId.length > 120 || !pickupPointAddress || pickupPointAddress.length > 500 || !["pickup_point", "terminal", "unknown"].includes(pickupPointType)) {
         return NextResponse.json({ error: "Не удалось прочитать данные выбранного пункта. Выберите его на карте ещё раз." }, { status: 400 });
       }
     } else {
