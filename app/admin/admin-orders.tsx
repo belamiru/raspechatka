@@ -32,6 +32,11 @@ type Order = {
   customerEmail: string | null;
   customerComment: string | null;
   totalPrice: number;
+  packageWidthMm: number | null;
+  packageLengthMm: number | null;
+  packageHeightMm: number | null;
+  packageWeightGrams: number | null;
+  physicalSheetCount: number | null;
   status: OrderStatus;
   createdAt: string;
   files: OrderFile[];
@@ -415,6 +420,20 @@ export default function AdminOrders({
                       <p className="mt-2 text-xl font-black">
                         {order.totalPrice} ₽
                       </p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Посылка
+                      </p>
+                      {order.packageWidthMm && order.packageLengthMm && order.packageHeightMm && order.packageWeightGrams && order.physicalSheetCount ? (
+                        <p className="mt-2 text-sm leading-6 text-slate-700">
+                          {order.packageWidthMm} × {order.packageLengthMm} × {order.packageHeightMm} мм · {order.packageWeightGrams} г<br />
+                          {order.physicalSheetCount} физ. листов
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-sm text-slate-500">Параметры посылки ещё не рассчитаны.</p>
+                      )}
                     </div>
 
                     <div>

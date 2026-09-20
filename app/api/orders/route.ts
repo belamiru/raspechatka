@@ -5,6 +5,7 @@ import { validateSupportedFile, type FileKind } from "@/lib/converter";
 import { getDb } from "@/lib/db";
 import { uploadOrderFile } from "@/lib/yandex-disk";
 import { getPrintPriceForPages } from "@/lib/pricing";
+import { calculateOrderParcel } from "@/lib/order-parcel";
 import { getPrintablePageCount, getPrintablePageOptions, type PagePrintOverride } from "@/lib/print-settings";
 import {
   checkRateLimit,
@@ -130,6 +131,11 @@ function ensureSchema() {
 
       await db.query(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS printable_page_count INTEGER;`);
       await db.query(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS page_overrides JSONB NOT NULL DEFAULT '{}'::jsonb;`);
+      await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_width_mm INTEGER;`);
+      await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_length_mm INTEGER;`);
+      await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_height_mm INTEGER;`);
+      await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_weight_grams INTEGER;`);
+      await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS physical_sheet_count INTEGER;`);
     })().catch((error) => {
       schemaReady = null;
       throw error;
@@ -541,6 +547,19 @@ export async function POST(request: Request) {
       });
     }
 
+    const parcel = calculateOrderParcel(
+      pricedItems.map((item) => ({
+        pageCount: item.pageCount,
+        copies: item.settings.copies,
+        printSides: item.settings.printSides,
+        paperFormat: item.settings.paperFormat,
+        pageOverrides: item.settings.pageOverrides,
+      }))
+    );
+    if (!parcel) {
+      return NextResponse.json({ error: "В заказе нет страниц для печати.", requestId }, { status: 400 });
+    }
+
     const client = await getDb().connect();
 
     try {
@@ -584,15 +603,25 @@ export async function POST(request: Request) {
             fulfillment_method,
             status,
             total_price,
-            guest_token_hash
+            guest_token_hash,
+            package_width_mm,
+            package_length_mm,
+            package_height_mm,
+            package_weight_grams,
+            physical_sheet_count
           )
-          VALUES ($1, '', '', NULL, NULL, 'pickup', 'awaiting_checkout', $2, $3)
+          VALUES ($1, '', '', NULL, NULL, 'pickup', 'awaiting_checkout', $2, $3, $4, $5, $6, $7, $8)
           RETURNING id;
         `,
         [
           orderNumber,
           totalPrice,
           hashGuestToken(guestToken),
+          parcel.widthMm,
+          parcel.lengthMm,
+          parcel.heightMm,
+          parcel.weightGrams,
+          parcel.physicalSheetCount,
         ]
       );
 

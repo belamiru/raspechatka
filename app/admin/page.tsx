@@ -14,6 +14,11 @@ type OrderRow = {
   customer_email: string | null;
   customer_comment: string | null;
   total_price: number;
+  package_width_mm: number | null;
+  package_length_mm: number | null;
+  package_height_mm: number | null;
+  package_weight_grams: number | null;
+  physical_sheet_count: number | null;
   status: "awaiting_checkout" | "new" | "in_progress" | "ready" | "completed" | "cancelled";
   created_at: Date;
 
@@ -54,6 +59,11 @@ export default async function AdminPage() {
       orders.customer_email,
       orders.customer_comment,
       orders.total_price,
+      orders.package_width_mm,
+      orders.package_length_mm,
+      orders.package_height_mm,
+      orders.package_weight_grams,
+      orders.physical_sheet_count,
       orders.status,
       orders.created_at,
 
@@ -82,6 +92,11 @@ export default async function AdminPage() {
       customerEmail: string | null;
       customerComment: string | null;
       totalPrice: number;
+      packageWidthMm: number | null;
+      packageLengthMm: number | null;
+      packageHeightMm: number | null;
+      packageWeightGrams: number | null;
+      physicalSheetCount: number | null;
       status: "awaiting_checkout" | "new" | "in_progress" | "ready" | "completed" | "cancelled";
       createdAt: string;
       files: {
@@ -111,6 +126,11 @@ export default async function AdminPage() {
         customerEmail: row.customer_email,
         customerComment: row.customer_comment,
         totalPrice: Number(row.total_price),
+        packageWidthMm: row.package_width_mm,
+        packageLengthMm: row.package_length_mm,
+        packageHeightMm: row.package_height_mm,
+        packageWeightGrams: row.package_weight_grams,
+        physicalSheetCount: row.physical_sheet_count,
         status: row.status,
         createdAt: row.created_at.toISOString(),
         files: [],
