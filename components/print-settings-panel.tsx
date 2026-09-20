@@ -174,6 +174,17 @@ export function PrintSettingsPanel({
         </div>
 
         <div>
+          <p className="text-sm font-bold text-slate-800">Категория печати</p>
+          <div className="mt-3 grid gap-2">
+            {([ ["black-and-white", "Чёрно-белая"], ["color", "Цветная"], ["solid-color", "Цветная — сплошная заливка"] ] as const).map(([colorMode, label]) => {
+              const isSelected = settings.defaults.colorMode === colorMode;
+              return <button key={colorMode} type="button" onClick={() => changeSettings({ defaults: { ...settings.defaults, colorMode } })} aria-pressed={isSelected} className={`rounded-xl border px-4 py-3 text-left text-sm font-bold transition ${isSelected ? "border-blue-700 bg-blue-700 text-white" : "border-slate-300 bg-white text-slate-700 hover:border-blue-400"}`}>{label}</button>;
+            })}
+          </div>
+          <p className="mt-2 text-xs leading-5 text-slate-500">Выберите «сплошная заливка» для страниц с плотным цветным фоном. Категорию можно изменить отдельно для страниц в предпросмотре.</p>
+        </div>
+
+        <div>
           <p className="text-sm font-bold text-slate-800">
             Количество копий
           </p>

@@ -4,7 +4,7 @@ import {
   formatFileSize,
   type ClientFileKind,
 } from "@/lib/client-file-analysis";
-import { DEFAULT_PRINT_SETTINGS, getExcludedPages, getPagesWithFormat, getPrintablePageCount, type FilePrintSettings } from "@/lib/print-settings";
+import { DEFAULT_PRINT_SETTINGS, getExcludedPages, getPagesWithFormat, getPagesWithColorMode, getPrintablePageCount, type FilePrintSettings } from "@/lib/print-settings";
 export type { FilePrintSettings } from "@/lib/print-settings";
 import { FileTypeIcon } from "@/components/file-type-icon";
 import { ImageFileThumbnail } from "@/components/image-file-thumbnail";
@@ -99,7 +99,9 @@ function getFileSettingsSummary(item: OrderFileListItem) {
   const excluded = getExcludedPages(settings);
   const printable = getPrintablePageCount(item.pageCount ?? 0, settings);
   const a3Pages = getPagesWithFormat(settings, "A3");
-  return `${settings.defaults.paperFormat} · ${settings.copies} ${settings.copies === 1 ? "копия" : "копии"} · ${getPrintSidesLabel(printSides)}${excluded.length ? ` · печатать ${printable} из ${item.pageCount ?? 0} стр.` : ""}${a3Pages.length ? ` · A3: стр. ${a3Pages.join(", ")}` : ""}`;
+  const colorPages = getPagesWithColorMode(settings, "color");
+  const solidColorPages = getPagesWithColorMode(settings, "solid-color");
+  return `${settings.defaults.paperFormat} · ${settings.copies} ${settings.copies === 1 ? "копия" : "копии"} · ${getPrintSidesLabel(printSides)}${excluded.length ? ` · печатать ${printable} из ${item.pageCount ?? 0} стр.` : ""}${a3Pages.length ? ` · A3: стр. ${a3Pages.join(", ")}` : ""}${colorPages.length ? ` · Цвет: стр. ${colorPages.join(", ")}` : ""}${solidColorPages.length ? ` · Заливка: стр. ${solidColorPages.join(", ")}` : ""}`;
 }
 
 export function OrderFileList({

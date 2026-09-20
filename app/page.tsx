@@ -16,7 +16,7 @@ import {
 import { SiteFooter } from "@/components/site-footer";
 import { reachMetrikaGoal } from "@/lib/metrika";
 import { getPrintPriceForPages } from "@/lib/pricing";
-import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageFormats } from "@/lib/print-settings";
+import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageOptions } from "@/lib/print-settings";
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
 
 
@@ -146,9 +146,9 @@ export default function Home() {
         return {
           file,
           pricing: getPrintPriceForPages({
-            pageFormats: file.kind === "document"
-              ? getPrintablePageFormats(file.pageCount ?? 0, settings)
-              : [settings.defaults.paperFormat],
+            pageOptions: file.kind === "document"
+              ? getPrintablePageOptions(file.pageCount ?? 0, settings)
+              : [{ paperFormat: settings.defaults.paperFormat, colorMode: settings.defaults.colorMode }],
             printSides: file.kind === "image" ? "one-sided" : settings.printSides,
             copies: settings.copies,
           }),

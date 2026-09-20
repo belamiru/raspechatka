@@ -3,7 +3,7 @@ import { validateSupportedFile, type FileKind } from "@/lib/converter";
 import { getDb } from "@/lib/db";
 import { uploadOrderFile } from "@/lib/yandex-disk";
 import { getPrintPriceForPages } from "@/lib/pricing";
-import { getPrintablePageCount, getPrintablePageFormats, type PagePrintOverride } from "@/lib/print-settings";
+import { getPrintablePageCount, getPrintablePageOptions, type PagePrintOverride } from "@/lib/print-settings";
 import {
   checkRateLimit,
   getRequestId,
@@ -40,6 +40,7 @@ type SubmittedOrderItem = {
 type SubmittedFileSettings = {
   fileId: string;
   paperFormat: "A4" | "A3";
+  colorMode: "black-and-white" | "color" | "solid-color";
   copies: number;
   printSides: "one-sided" | "two-sided";
   pageOverrides: Record<number, PagePrintOverride>;
@@ -208,7 +209,7 @@ function parseFileSettings(
 
     const paperFormat = (defaults as Record<string, unknown>).paperFormat;
     const colorMode = (defaults as Record<string, unknown>).colorMode;
-    if ((paperFormat !== "A4" && paperFormat !== "A3") || colorMode !== "black-and-white") {
+    if ((paperFormat !== "A4" && paperFormat !== "A3") || !["black-and-white", "color", "solid-color"].includes(String(colorMode))) {
       return { valid: false, error: "Выбраны некорректные настройки печати." };
     }
 
@@ -224,10 +225,11 @@ function parseFileSettings(
       }
       const override = rawOverride as Record<string, unknown>;
       const pageFormat = override.paperFormat;
-      if (override.pageNumber !== pageNumber || (override.included !== undefined && typeof override.included !== "boolean") || (pageFormat !== undefined && pageFormat !== "A4" && pageFormat !== "A3")) {
+      const pageColorMode = override.colorMode;
+      if (override.pageNumber !== pageNumber || (override.included !== undefined && typeof override.included !== "boolean") || (pageFormat !== undefined && pageFormat !== "A4" && pageFormat !== "A3") || (pageColorMode !== undefined && !["black-and-white", "color", "solid-color"].includes(String(pageColorMode)))) {
         return { valid: false, error: "Некорректные настройки страниц." };
       }
-      pageOverrides[pageNumber] = { pageNumber, ...(override.included === false ? { included: false } : {}), ...(pageFormat ? { paperFormat: pageFormat } : {}) };
+      pageOverrides[pageNumber] = { pageNumber, ...(override.included === false ? { included: false } : {}), ...(pageFormat ? { paperFormat: pageFormat } : {}), ...(pageColorMode ? { colorMode: pageColorMode as "black-and-white" | "color" | "solid-color" } : {}) };
     }
 
     if (
@@ -254,6 +256,7 @@ function parseFileSettings(
     settings.push({
       fileId,
       paperFormat: paperFormat as "A4" | "A3",
+      colorMode: colorMode as "black-and-white" | "color" | "solid-color",
       copies,
       printSides,
       pageOverrides,
@@ -499,7 +502,7 @@ export async function POST(request: Request) {
       if (Object.keys(settings.pageOverrides).some((page) => Number(page) > draft.pageCount)) {
         return NextResponse.json({ error: "Настройки содержат несуществующую страницу документа.", requestId }, { status: 400 });
       }
-      if (getPrintablePageCount(draft.pageCount, { copies: settings.copies, printSides: settings.printSides, defaults: { paperFormat: settings.paperFormat, colorMode: "black-and-white" }, pageOverrides: settings.pageOverrides }) < 1) {
+      if (getPrintablePageCount(draft.pageCount, { copies: settings.copies, printSides: settings.printSides, defaults: { paperFormat: settings.paperFormat, colorMode: settings.colorMode }, pageOverrides: settings.pageOverrides }) < 1) {
         return NextResponse.json({ error: "Нельзя исключить все страницы документа.", requestId }, { status: 400 });
       }
 
@@ -509,9 +512,9 @@ export async function POST(request: Request) {
     const pricedItems = preparedItems.map((item) => ({
       ...item,
       pricing: getPrintPriceForPages({
-        pageFormats: item.kind === "document"
-          ? getPrintablePageFormats(item.pageCount, { copies: item.settings.copies, printSides: item.settings.printSides, defaults: { paperFormat: item.settings.paperFormat, colorMode: "black-and-white" }, pageOverrides: item.settings.pageOverrides })
-          : [item.settings.paperFormat],
+        pageOptions: item.kind === "document"
+          ? getPrintablePageOptions(item.pageCount, { copies: item.settings.copies, printSides: item.settings.printSides, defaults: { paperFormat: item.settings.paperFormat, colorMode: item.settings.colorMode }, pageOverrides: item.settings.pageOverrides })
+          : [{ paperFormat: item.settings.paperFormat, colorMode: item.settings.colorMode }],
         printSides: item.settings.printSides,
         copies: item.settings.copies,
       }),

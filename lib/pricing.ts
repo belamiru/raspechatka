@@ -135,37 +135,36 @@ export function getPrintPrice({
   };
 }
 
-/** Calculates an item with a potentially different A4/A3 format per printed page. */
-export function getPrintPriceForPages({
-  pageFormats,
-  printSides,
-  copies,
-}: {
-  pageFormats: PaperFormat[];
+export type PrintColorMode = "black-and-white" | "color" | "solid-color";
+export type PagePrintOption = { paperFormat: PaperFormat; colorMode: PrintColorMode };
+
+type ColorPriceTier = PriceTier & { colorA4: number; solidColorA4: number };
+
+const COLOR_PRICE_TIERS: ColorPriceTier[] = [
+  { from: 1, to: 9, a4OneSidedPrice: 20, colorA4: 60, solidColorA4: 120, label: "1–9 страниц" },
+  { from: 10, to: 24, a4OneSidedPrice: 18, colorA4: 55, solidColorA4: 110, label: "10–24 страниц" },
+  { from: 25, to: 49, a4OneSidedPrice: 16, colorA4: 50, solidColorA4: 100, label: "25–49 страниц" },
+  { from: 50, to: 99, a4OneSidedPrice: 14, colorA4: 45, solidColorA4: 90, label: "50–99 страниц" },
+  { from: 100, to: 249, a4OneSidedPrice: 11, colorA4: 40, solidColorA4: 80, label: "100–249 страниц" },
+  { from: 250, to: 499, a4OneSidedPrice: 8, colorA4: 35, solidColorA4: 70, label: "250–499 страниц" },
+  { from: 500, to: null, a4OneSidedPrice: 8, colorA4: 30, solidColorA4: 60, label: "от 500 страниц" },
+];
+
+/** Calculates an item with per-page format and colour categories. */
+export function getPrintPriceForPages({ pageOptions, printSides, copies }: {
+  pageOptions: PagePrintOption[];
   printSides: PrintSides;
   copies: number;
 }) {
-  const printablePages = Math.max(1, pageFormats.length);
-  const quantity = printablePages * Math.max(1, copies);
-  const tier = PRICE_TIERS.find((item) => item.to === null || (quantity >= item.from && quantity <= item.to)) ?? PRICE_TIERS[0];
-  const baseUnitPrice = tier.a4OneSidedPrice;
-  const totalPrice = pageFormats.reduce(
-    (total, paperFormat) => total + baseUnitPrice * (paperFormat === "A3" ? 2 : 1),
-    0
-  ) * Math.max(1, copies);
-  const sheetsPerCopy = printSides === "two-sided" ? Math.ceil(printablePages / 2) : printablePages;
-
-  return {
-    quantity,
-    tier,
-    baseUnitPrice,
-    effectiveUnitPrice: baseUnitPrice,
-    formatMultiplier: 1,
-    sidesMultiplier: 1,
-    priceMultiplier: 1,
-    totalPrice,
-    sheetsPerCopy,
-    physicalSheetQuantity: sheetsPerCopy * Math.max(1, copies),
-    physicalSheetUnitPrice: baseUnitPrice * (printSides === "two-sided" ? 2 : 1),
+  const printablePages = Math.max(1, pageOptions.length);
+  const validCopies = Math.max(1, copies);
+  const quantity = printablePages * validCopies;
+  const tier = COLOR_PRICE_TIERS.find((item) => item.to === null || (quantity >= item.from && quantity <= item.to)) ?? COLOR_PRICE_TIERS[0];
+  const priceForPage = ({ paperFormat, colorMode }: PagePrintOption) => {
+    const a4Price = colorMode === "solid-color" ? tier.solidColorA4 : colorMode === "color" ? tier.colorA4 : tier.a4OneSidedPrice;
+    return a4Price * (paperFormat === "A3" ? 2 : 1);
   };
+  const totalPrice = pageOptions.reduce((total, page) => total + priceForPage(page), 0) * validCopies;
+  const sheetsPerCopy = printSides === "two-sided" ? Math.ceil(printablePages / 2) : printablePages;
+  return { quantity, tier, baseUnitPrice: tier.a4OneSidedPrice, effectiveUnitPrice: tier.a4OneSidedPrice, formatMultiplier: 1, sidesMultiplier: 1, priceMultiplier: 1, totalPrice, sheetsPerCopy, physicalSheetQuantity: sheetsPerCopy * validCopies, physicalSheetUnitPrice: tier.a4OneSidedPrice * (printSides === "two-sided" ? 2 : 1) };
 }

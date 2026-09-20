@@ -18,7 +18,7 @@ type OrderFile = {
   paperFormat: string;
   pageCount: number;
   printablePageCount: number;
-  pageOverrides: Record<string, { pageNumber: number; included?: boolean; paperFormat?: "A4" | "A3" }>;
+  pageOverrides: Record<string, { pageNumber: number; included?: boolean; paperFormat?: "A4" | "A3"; colorMode?: "black-and-white" | "color" | "solid-color" }>;
   copies: number;
   printSides: string;
 };
@@ -118,6 +118,10 @@ function getExcludedPages(file: OrderFile) {
     .filter((item) => item.included === false)
     .map((item) => item.pageNumber)
     .sort((a, b) => a - b);
+}
+
+function getColorPages(file: OrderFile, colorMode: "color" | "solid-color") {
+  return Object.values(file.pageOverrides).filter((item) => item.included !== false && item.colorMode === colorMode).map((item) => item.pageNumber).sort((a, b) => a - b);
 }
 
 function getA3Pages(file: OrderFile) {
@@ -494,6 +498,8 @@ export default function AdminOrders({
                                   A3: стр. {getA3Pages(file).join(", ")} · Остальные: {file.paperFormat}
                                 </p>
                               )}
+                              {getColorPages(file, "color").length > 0 && <p className="mt-1 text-sm font-bold text-blue-800">Цветные: стр. {getColorPages(file, "color").join(", ")}</p>}
+                              {getColorPages(file, "solid-color").length > 0 && <p className="mt-1 text-sm font-bold text-fuchsia-800">Сплошная заливка: стр. {getColorPages(file, "solid-color").join(", ")}</p>}
                             </div>
 
                             {file.diskPath ? (
