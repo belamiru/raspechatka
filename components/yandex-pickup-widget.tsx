@@ -14,7 +14,7 @@ export type YandexPickupPoint = {
   type: "pickup_point" | "terminal";
 };
 
-const WIDGET_URL = "https://widget-pvz.dostavka.yandex.net/widget.js?v=2";
+const WIDGET_URL = "https://widget-pvz.dostavka.yandex.net/widget.js";
 // This is our origin platform station, not the destination selected by a customer.
 const SOURCE_PLATFORM_STATION = "019e06631c07764c8cf4bc2ede9c2284";
 
@@ -66,7 +66,7 @@ export function YandexPickupWidget({
           show_select_button: true,
           filter: {
             type: ["pickup_point", "terminal"],
-            payment_methods: ["postpay"],
+            payment_methods: ["already_paid", "card_on_receipt"],
             payment_methods_filter: "or",
           },
         },
