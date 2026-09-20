@@ -66,7 +66,7 @@ export function YandexPickupWidget({
           show_select_button: true,
           filter: {
             type: ["pickup_point", "terminal"],
-            payment_methods: ["already_paid", "card_on_receipt"],
+            payment_methods: ["postpay"],
             payment_methods_filter: "or",
           },
         },
