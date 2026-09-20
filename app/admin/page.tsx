@@ -14,6 +14,11 @@ type OrderRow = {
   customer_email: string | null;
   customer_comment: string | null;
   total_price: number;
+  fulfillment_method: string;
+  pickup_point_id: string | null;
+  pickup_point_address: string | null;
+  pickup_point_type: string | null;
+  delivery_price: number | null;
   package_width_mm: number | null;
   package_length_mm: number | null;
   package_height_mm: number | null;
@@ -59,6 +64,11 @@ export default async function AdminPage() {
       orders.customer_email,
       orders.customer_comment,
       orders.total_price,
+      orders.fulfillment_method,
+      orders.pickup_point_id,
+      orders.pickup_point_address,
+      orders.pickup_point_type,
+      orders.delivery_price,
       orders.package_width_mm,
       orders.package_length_mm,
       orders.package_height_mm,
@@ -92,6 +102,11 @@ export default async function AdminPage() {
       customerEmail: string | null;
       customerComment: string | null;
       totalPrice: number;
+      fulfillmentMethod: string;
+      pickupPointId: string | null;
+      pickupPointAddress: string | null;
+      pickupPointType: string | null;
+      deliveryPrice: number | null;
       packageWidthMm: number | null;
       packageLengthMm: number | null;
       packageHeightMm: number | null;
@@ -126,6 +141,11 @@ export default async function AdminPage() {
         customerEmail: row.customer_email,
         customerComment: row.customer_comment,
         totalPrice: Number(row.total_price),
+        fulfillmentMethod: row.fulfillment_method,
+        pickupPointId: row.pickup_point_id,
+        pickupPointAddress: row.pickup_point_address,
+        pickupPointType: row.pickup_point_type,
+        deliveryPrice: row.delivery_price,
         packageWidthMm: row.package_width_mm,
         packageLengthMm: row.package_length_mm,
         packageHeightMm: row.package_height_mm,

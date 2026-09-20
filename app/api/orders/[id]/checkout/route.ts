@@ -33,17 +33,40 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         !/^[+\d ()-]+$/.test(phone) || !/^\d{10,15}$/.test(phone.replace(/\D/g, "")) || comment.length > 2000) {
       return NextResponse.json({ error: "Проверьте имя, телефон (10–15 цифр) и комментарий (до 2000 символов)." }, { status: 400 });
     }
-    if (data.fulfillmentMethod !== "pickup" || data.paymentMethod !== "on_receipt") {
-      return NextResponse.json({ error: "Выберите самовывоз и оплату при получении." }, { status: 400 });
+    const fulfillmentMethod = data.fulfillmentMethod;
+    const paymentMethod = data.paymentMethod;
+    const pickupPoint = data.pickupPoint;
+    let pickupPointId: string | null = null;
+    let pickupPointAddress: string | null = null;
+    let pickupPointType: string | null = null;
+    if (fulfillmentMethod === "pickup") {
+      if (paymentMethod !== "on_receipt") {
+        return NextResponse.json({ error: "Для самовывоза выберите оплату при получении." }, { status: 400 });
+      }
+    } else if (fulfillmentMethod === "yandex_pickup_point") {
+      if (paymentMethod !== "on_receipt" || !pickupPoint || typeof pickupPoint !== "object" || Array.isArray(pickupPoint)) {
+        return NextResponse.json({ error: "Выберите пункт выдачи на карте Яндекс Доставки." }, { status: 400 });
+      }
+      const point = pickupPoint as Record<string, unknown>;
+      pickupPointId = typeof point.id === "string" ? point.id.trim() : "";
+      pickupPointAddress = typeof point.address === "string" ? point.address.trim() : "";
+      pickupPointType = typeof point.type === "string" ? point.type.trim() : "";
+      if (!pickupPointId || pickupPointId.length > 120 || !pickupPointAddress || pickupPointAddress.length > 500 || !["pickup_point", "terminal"].includes(pickupPointType)) {
+        return NextResponse.json({ error: "Не удалось прочитать данные выбранного пункта. Выберите его на карте ещё раз." }, { status: 400 });
+      }
+    } else {
+      return NextResponse.json({ error: "Выберите способ получения." }, { status: 400 });
     }
     if (order.status === "cancelled") return NextResponse.json({ error: "Заказ отменён." }, { status: 409 });
     // The conditional update also makes retries and concurrent submissions harmless.
     await getDb().query(`
       UPDATE orders SET customer_name = $1, customer_phone = $2, customer_comment = $3,
-        fulfillment_method = 'pickup', payment_method = 'on_receipt',
-        status = 'new', updated_at = NOW()
-      WHERE id = $4 AND guest_token_hash = $5 AND status = 'awaiting_checkout'
-    `, [name, phone, comment || null, id, hashGuestToken(token)]);
+        fulfillment_method = $4, payment_method = $5,
+        pickup_point_id = $6, pickup_point_address = $7, pickup_point_type = $8,
+        delivery_price = NULL, status = 'new', updated_at = NOW()
+      WHERE id = $9 AND guest_token_hash = $10 AND status = 'awaiting_checkout'
+    `, [name, phone, comment || null, fulfillmentMethod, paymentMethod,
+      pickupPointId, pickupPointAddress, pickupPointType, id, hashGuestToken(token)]);
     const saved = await getGuestOrder(id, token);
     if (!saved || saved.status === "cancelled") {
       return NextResponse.json({ error: "Заказ недоступен для оформления." }, { status: 409 });

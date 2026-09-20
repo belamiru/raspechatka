@@ -18,6 +18,10 @@ export function ensureOrderCheckoutSchema() {
     schemaReady = getDb().query(`
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS guest_token_hash TEXT;
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_point_id VARCHAR(120);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_point_address TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_point_type VARCHAR(40);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_price INTEGER;
     `).then(() => undefined).catch((error) => {
       schemaReady = null;
       throw error;
@@ -36,6 +40,11 @@ export type GuestOrder = {
   status: string;
   fulfillment_method: string;
   payment_method: string | null;
+  pickup_point_id: string | null;
+  pickup_point_address: string | null;
+  pickup_point_type: string | null;
+  delivery_price: number | null;
+  package_weight_grams: number | null;
 };
 
 export async function getGuestOrder(id: string, token: string | undefined) {
@@ -43,7 +52,9 @@ export async function getGuestOrder(id: string, token: string | undefined) {
   await ensureOrderCheckoutSchema();
   const result = await getDb().query<GuestOrder>(`
     SELECT id, order_number, customer_name, customer_phone, customer_comment,
-           total_price, status, fulfillment_method, payment_method
+           total_price, status, fulfillment_method, payment_method,
+           pickup_point_id, pickup_point_address, pickup_point_type, delivery_price,
+           package_weight_grams
     FROM orders WHERE id = $1 AND guest_token_hash = $2
   `, [id, hashGuestToken(token)]);
   return result.rows[0] ?? null;

@@ -32,6 +32,11 @@ type Order = {
   customerEmail: string | null;
   customerComment: string | null;
   totalPrice: number;
+  fulfillmentMethod: string;
+  pickupPointId: string | null;
+  pickupPointAddress: string | null;
+  pickupPointType: string | null;
+  deliveryPrice: number | null;
   packageWidthMm: number | null;
   packageLengthMm: number | null;
   packageHeightMm: number | null;
@@ -400,6 +405,20 @@ export default function AdminOrders({
                           {order.customerEmail}
                         </a>
                       )}
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Получение
+                      </p>
+                      {order.fulfillmentMethod === "yandex_pickup_point" ? (
+                        <div className="mt-2 text-sm leading-6 text-slate-700">
+                          <p className="font-semibold">Доставка в ПВЗ Яндекс Доставки</p>
+                          <p>{order.pickupPointAddress ?? "Пункт ещё не выбран"}</p>
+                          {order.pickupPointType && <p>{order.pickupPointType === "terminal" ? "Постамат" : "ПВЗ"}{order.pickupPointId ? ` · ID: ${order.pickupPointId}` : ""}</p>}
+                          <p>{order.deliveryPrice === null ? "Стоимость доставки уточняется" : `Доставка: ${order.deliveryPrice} ₽`}</p>
+                        </div>
+                      ) : <p className="mt-2 text-sm text-slate-700">Самовывоз · бесплатно</p>}
                     </div>
 
                     <div>
