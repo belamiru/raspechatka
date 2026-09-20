@@ -1,13 +1,52 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import * as pdfjs from "pdfjs-dist";
-import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPageColorMode, getPagePaperFormat, getPrintablePageCount, type ColorMode, type FilePrintSettings } from "@/lib/print-settings";
 pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
 const THUMBNAIL_SCALE=0.28, PREVIEW_SCALE=1.5;
 async function draw(pdf:PDFDocumentProxy,n:number,canvas:HTMLCanvasElement,scale:number){const p=await pdf.getPage(n),v=p.getViewport({scale}),c=canvas.getContext("2d",{alpha:false});if(!c)throw new Error("Браузер не поддерживает предпросмотр PDF.");canvas.width=Math.ceil(v.width);canvas.height=Math.ceil(v.height);await p.render({canvas,canvasContext:c,viewport:v}).promise;}
 const colorLabel:Record<ColorMode,string>={"black-and-white":"Ч/б",color:"Цвет", "solid-color":"Заливка"};
-function Thumb({pdf,n,selected,included,format,color,onClick}:{pdf:PDFDocumentProxy;n:number;selected:boolean;included:boolean;format:"A4"|"A3";color:ColorMode;onClick:()=>void}){const ref=useRef<HTMLCanvasElement>(null);useEffect(()=>{if(ref.current)void draw(pdf,n,ref.current,THUMBNAIL_SCALE).catch(()=>undefined)},[pdf,n]);return <button type="button" onClick={onClick} aria-pressed={selected} className={`rounded-xl border p-2 text-left ${selected?"border-blue-700 bg-blue-50":"border-slate-200 bg-white"} ${included?"":"opacity-50"}`}><div className="relative overflow-hidden rounded-lg bg-slate-100"><canvas ref={ref} className="block h-auto w-full"/>{!included&&<span className="absolute inset-0 flex items-center justify-center bg-slate-900/30 text-xs font-bold text-white">Не печатать</span>}{included&&(format==="A3"||color!=="black-and-white")&&<span className="absolute right-1 top-1 flex gap-1">{format==="A3"&&<b className="rounded bg-amber-500 px-1 py-0.5 text-xs text-white">A3</b>}{color!=="black-and-white"&&<b className={`rounded px-1 py-0.5 text-xs text-white ${color==="solid-color"?"bg-fuchsia-700":"bg-blue-700"}`}>{colorLabel[color]}</b>}</span>}</div><span className={`mt-2 block text-center text-xs font-bold ${included?"":"text-red-700 line-through"}`}>Страница {n}</span></button>}
+function Thumb({pdf,n,selected,included,format,color,onClick}:{pdf:PDFDocumentProxy;n:number;selected:boolean;included:boolean;format:"A4"|"A3";color:ColorMode;onClick:()=>void}){
+  const cardRef=useRef<HTMLButtonElement>(null),canvasRef=useRef<HTMLCanvasElement>(null);
+  const [isNearViewport,setIsNearViewport]=useState(false);
+
+  useEffect(()=>{
+    const card=cardRef.current;
+    if(!card)return;
+    const observer=new IntersectionObserver(([entry])=>setIsNearViewport(entry.isIntersecting),{rootMargin:"800px 0px"});
+    observer.observe(card);
+    return()=>observer.disconnect();
+  },[]);
+
+  useEffect(()=>{
+    const canvas=canvasRef.current;
+    if(!isNearViewport||!canvas)return;
+    let disposed=false;
+    let renderTask:ReturnType<PDFPageProxy["render"]>|null=null;
+    void (async()=>{
+      try{
+        const page=await pdf.getPage(n);
+        if(disposed)return;
+        const viewport=page.getViewport({scale:THUMBNAIL_SCALE});
+        const context=canvas.getContext("2d",{alpha:false});
+        if(!context)throw new Error("Браузер не поддерживает предпросмотр PDF.");
+        canvas.width=Math.ceil(viewport.width);
+        canvas.height=Math.ceil(viewport.height);
+        renderTask=page.render({canvas,canvasContext:context,viewport});
+        await renderTask.promise;
+      }catch{}
+    })();
+    return()=>{
+      disposed=true;
+      renderTask?.cancel();
+      canvas.width=0;
+      canvas.height=0;
+    };
+  },[isNearViewport,pdf,n]);
+
+  return <button ref={cardRef} type="button" onClick={onClick} aria-pressed={selected} className={`rounded-xl border p-2 text-left ${selected?"border-blue-700 bg-blue-50":"border-slate-200 bg-white"} ${included?"":"opacity-50"}`}><div className="relative overflow-hidden rounded-lg bg-slate-100">{isNearViewport?<canvas ref={canvasRef} className="block h-auto w-full"/>:<div className="aspect-[0.707] w-full"/>}{!included&&<span className="absolute inset-0 flex items-center justify-center bg-slate-900/30 text-xs font-bold text-white">Не печатать</span>}{included&&(format==="A3"||color!=="black-and-white")&&<span className="absolute right-1 top-1 flex gap-1">{format==="A3"&&<b className="rounded bg-amber-500 px-1 py-0.5 text-xs text-white">A3</b>}{color!=="black-and-white"&&<b className={`rounded px-1 py-0.5 text-xs text-white ${color==="solid-color"?"bg-fuchsia-700":"bg-blue-700"}`}>{colorLabel[color]}</b>}</span>}</div><span className={`mt-2 block text-center text-xs font-bold ${included?"":"text-red-700 line-through"}`}>Страница {n}</span></button>
+}
 export function PrintDraftViewer({draftId}:{draftId:string}){const [pdf,setPdf]=useState<PDFDocumentProxy|null>(null),[error,setError]=useState(""),[current,setCurrent]=useState(1),[selected,setSelected]=useState<Set<number>>(new Set()),[settings,setSettings]=useState<FilePrintSettings>({...DEFAULT_PRINT_SETTINGS,defaults:{...DEFAULT_PRINT_SETTINGS.defaults},pageOverrides:{}});const preview=useRef<HTMLCanvasElement>(null);
 useEffect(()=>{try{const x=localStorage.getItem(getDraftSettingsStorageKey(draftId));if(x)setSettings(JSON.parse(x))}catch{}let disposed=false;let loaded:PDFDocumentProxy|null=null;void(async()=>{try{const res=await fetch(`/api/print-drafts/${draftId}/preview`,{cache:"no-store"});if(!res.ok)throw new Error((await res.json().catch(()=>null))?.error??"Не удалось открыть документ.");loaded=await pdfjs.getDocument({data:await res.arrayBuffer()}).promise;if(!disposed)setPdf(loaded)}catch(e){if(!disposed)setError(e instanceof Error?e.message:"Не удалось открыть документ.")}})();return()=>{disposed=true;if(loaded)void loaded.destroy()}},[draftId]);
 useEffect(()=>{localStorage.setItem(getDraftSettingsStorageKey(draftId),JSON.stringify(settings))},[draftId,settings]);useEffect(()=>{if(pdf&&preview.current)void draw(pdf,current,preview.current,PREVIEW_SCALE).catch(()=>setError("Не удалось показать страницу."))},[pdf,current]);
