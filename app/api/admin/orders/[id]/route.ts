@@ -44,7 +44,7 @@ export async function PATCH(
     `
       UPDATE orders
       SET status = $1, updated_at = NOW()
-      WHERE id = $2
+      WHERE id = $2 AND (status <> 'awaiting_checkout' OR $1 = 'cancelled')
       RETURNING id, status;
     `,
     [status, orderId]
@@ -52,7 +52,7 @@ export async function PATCH(
 
   if (result.rowCount === 0) {
     return NextResponse.json(
-      { error: "Заказ не найден." },
+      { error: "Заказ не найден или клиент ещё не завершил оформление." },
       { status: 404 }
     );
   }

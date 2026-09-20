@@ -1,3 +1,5 @@
+import { cookies } from "next/headers";
+import { ensureOrderCheckoutSchema, ORDER_GUEST_COOKIE, ORDER_GUEST_MAX_AGE, validGuestToken, newGuestToken, hashGuestToken } from "@/lib/order-checkout";
 import { NextResponse } from "next/server";
 import { validateSupportedFile, type FileKind } from "@/lib/converter";
 import { getDb } from "@/lib/db";
@@ -356,6 +358,7 @@ export async function POST(request: Request) {
     }
 
     await ensureSchema();
+    await ensureOrderCheckoutSchema();
 
     const formData = await request.formData();
     const website = textValue(formData, "website");
@@ -425,37 +428,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const customerName = textValue(formData, "customerName");
-    const customerPhone = textValue(formData, "customerPhone");
-    const customerEmail = textValue(formData, "customerEmail");
-    const customerComment = textValue(formData, "customerComment");
-
-    if (customerName.length < 2) {
-      return NextResponse.json(
-        { error: "Укажите имя.", requestId },
-        { status: 400 }
-      );
-    }
-
-    if (customerPhone.length < 6) {
-      return NextResponse.json(
-        { error: "Укажите корректный номер телефона.", requestId },
-        { status: 400 }
-      );
-    }
+    const cookieStore = await cookies();
+    const previousGuestToken = cookieStore.get(ORDER_GUEST_COOKIE)?.value;
+    const guestToken = validGuestToken(previousGuestToken) ? previousGuestToken : newGuestToken();
 
     const parsedFileSettings = parseFileSettings(
-      textValue(formData, "fileSettings"),
-      submittedItems.length
+      textValue(formData, "fileSettings"), submittedItems.length
     );
-
     if (!parsedFileSettings.valid) {
-      return NextResponse.json(
-        { error: parsedFileSettings.error, requestId },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: parsedFileSettings.error, requestId }, { status: 400 });
     }
-
     const ownerToken = getPrintDraftOwnerToken(request);
     const preparedItems: Array<
       PreparedOrderItem & { settings: SubmittedFileSettings }
@@ -601,18 +583,16 @@ export async function POST(request: Request) {
             customer_comment,
             fulfillment_method,
             status,
-            total_price
+            total_price,
+            guest_token_hash
           )
-          VALUES ($1, $2, $3, $4, $5, 'pickup', 'new', $6)
+          VALUES ($1, '', '', NULL, NULL, 'pickup', 'awaiting_checkout', $2, $3)
           RETURNING id;
         `,
         [
           orderNumber,
-          customerName,
-          customerPhone,
-          customerEmail || null,
-          customerComment || null,
           totalPrice,
+          hashGuestToken(guestToken),
         ]
       );
 
@@ -672,11 +652,20 @@ export async function POST(request: Request) {
 
       await client.query("COMMIT");
 
-      return NextResponse.json({
+      const response = NextResponse.json({
         success: true,
         orderNumber,
         totalPrice,
+        checkoutUrl: `/orders/${orderId}/checkout`,
       });
+      response.cookies.set(ORDER_GUEST_COOKIE, guestToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: ORDER_GUEST_MAX_AGE,
+      });
+      return response;
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

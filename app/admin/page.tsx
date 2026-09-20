@@ -14,7 +14,7 @@ type OrderRow = {
   customer_email: string | null;
   customer_comment: string | null;
   total_price: number;
-  status: "new" | "in_progress" | "ready" | "completed" | "cancelled";
+  status: "awaiting_checkout" | "new" | "in_progress" | "ready" | "completed" | "cancelled";
   created_at: Date;
 
   item_id: string | null;
@@ -82,7 +82,7 @@ export default async function AdminPage() {
       customerEmail: string | null;
       customerComment: string | null;
       totalPrice: number;
-      status: "new" | "in_progress" | "ready" | "completed" | "cancelled";
+      status: "awaiting_checkout" | "new" | "in_progress" | "ready" | "completed" | "cancelled";
       createdAt: string;
       files: {
         id: string;

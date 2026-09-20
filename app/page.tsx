@@ -97,10 +97,6 @@ export default function Home() {
   const [activePriceTab, setActivePriceTab] = useState<PriceTab>("black-and-white");
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
 
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [customerEmail, setCustomerEmail] = useState("");
-  const [customerComment, setCustomerComment] = useState("");
   const [website, setWebsite] = useState("");
 
   const [personalDataConsent, setPersonalDataConsent] = useState(false);
@@ -471,10 +467,6 @@ export default function Home() {
           }))
         )
       );
-      formData.append("customerName", customerName);
-      formData.append("customerPhone", customerPhone);
-      formData.append("customerEmail", customerEmail);
-      formData.append("customerComment", customerComment);
       formData.append("website", website);
 
       formData.append(
@@ -494,6 +486,7 @@ export default function Home() {
 
       const result = (await response.json().catch(() => null)) as {
         orderNumber?: string;
+        checkoutUrl?: string;
         error?: string;
         requestId?: string;
       } | null;
@@ -509,8 +502,11 @@ export default function Home() {
         return;
       }
 
-      setCreatedOrderNumber(result?.orderNumber ?? "");
-      reachMetrikaGoal("order_created");
+      if (result?.checkoutUrl && /^\/orders\/[1-9][0-9]*\/checkout$/.test(result.checkoutUrl)) {
+        window.location.assign(result.checkoutUrl);
+        return;
+      }
+      setFormError("Не удалось открыть оформление заказа. Обновите страницу и попробуйте снова.");
     } catch {
       setFormError(
         "Не удалось связаться с сервером. Проверьте интернет и повторите попытку."
@@ -830,75 +826,7 @@ export default function Home() {
             </div>
 
             <div className="mt-8 border-t border-slate-100 pt-8">
-              <h2 className="text-2xl font-bold">3. Контактные данные</h2>
-
-              <div className="mt-6 grid gap-5 sm:grid-cols-2">
-                <label className="block">
-                  <span className="mb-2 block text-sm font-semibold">
-                    Ваше имя *
-                  </span>
-
-                  <input
-                    required
-                    value={customerName}
-                    onChange={(event) => setCustomerName(event.target.value)}
-                    placeholder="Иван Иванов"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
-                  />
-                </label>
-
-                <label className="block">
-                  <span className="mb-2 block text-sm font-semibold">
-                    Телефон *
-                  </span>
-
-                  <input
-                    required
-                    type="tel"
-                    value={customerPhone}
-                    onChange={(event) => setCustomerPhone(event.target.value)}
-                    placeholder="+7 900 000-00-00"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
-                  />
-                </label>
-
-                <label className="block sm:col-span-2">
-                  <span className="mb-2 block text-sm font-semibold">
-                    Email{" "}
-                    <span className="font-normal text-slate-400">
-                      (необязательно)
-                    </span>
-                  </span>
-
-                  <input
-                    type="email"
-                    value={customerEmail}
-                    onChange={(event) => setCustomerEmail(event.target.value)}
-                    placeholder="mail@example.ru"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
-                  />
-                </label>
-
-                <label className="block sm:col-span-2">
-                  <span className="mb-2 block text-sm font-semibold">
-                    Комментарий к заказу
-                  </span>
-
-                  <textarea
-                    rows={3}
-                    value={customerComment}
-                    onChange={(event) =>
-                      setCustomerComment(event.target.value)
-                    }
-                    placeholder="Например: позвоните, когда заказ будет готов."
-                    className="w-full resize-y rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
-                  />
-                </label>
-              </div>
-            </div>
-
-            <div className="mt-8 border-t border-slate-100 pt-8">
-              <h2 className="text-2xl font-bold">4. Подтвердите условия</h2>
+              <h2 className="text-2xl font-bold">3. Подтвердите условия</h2>
 
               <div className="mt-5 space-y-4">
                 <label className="flex cursor-pointer items-start gap-3 text-sm leading-6 text-slate-600">
