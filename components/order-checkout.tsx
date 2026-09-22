@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { GuestOrder } from "@/lib/order-checkout";
 import { reachMetrikaGoal } from "@/lib/metrika";
 import { YandexPickupWidget, type YandexPickupPoint } from "@/components/yandex-pickup-widget";
@@ -19,8 +19,33 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
   const [method, setMethod] = useState<"pickup" | "yandex_pickup_point">("pickup");
   const [point, setPoint] = useState<YandexPickupPoint | null>(null);
   const [busy, setBusy] = useState(false);
+  const [checkingPayment, setCheckingPayment] = useState(false);
   const [error, setError] = useState("");
   const selectPoint = useCallback((next: YandexPickupPoint | null) => setPoint(next), []);
+
+  const reconcilePayment = useCallback(async (showError = true) => {
+    if (checkingPayment) return;
+    setCheckingPayment(true);
+    if (showError) setError("");
+    try {
+      const response = await fetch(`/api/orders/${order.id}/payments/tbank/status`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok || !result.order) throw new Error(result.error ?? "Не удалось проверить статус оплаты.");
+      setOrder(result.order);
+    } catch (cause) {
+      if (showError) setError(cause instanceof Error ? cause.message : "Не удалось проверить статус оплаты.");
+    } finally {
+      setCheckingPayment(false);
+    }
+  }, [checkingPayment, order.id]);
+
+  // The redirect from T-Bank is not a payment confirmation. Reconcile with the bank
+  // when the customer comes back, so a delayed webhook does not leave a paid order pending.
+  useEffect(() => {
+    if (initialOrder.status === "awaiting_payment") void reconcilePayment(false);
+  // Run once for this checkout page instance; the manual button handles later retries.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialOrder.id]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -82,9 +107,9 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
       </form> : <div className="mt-6 space-y-3">
         <p>{order.customer_name} · {order.customer_phone}</p><p>Получение: {deliveryLabel}.</p>
         {order.pickup_point_address && <p>Пункт: {order.pickup_point_address} ({order.pickup_point_type === "terminal" ? "постамат" : "ПВЗ"}).</p>}
-        <p>Оплата: при получении.</p>{order.fulfillment_method === "yandex_pickup_point" && <p>Стоимость доставки уточняется.</p>}
+        <p>Оплата: онлайн через Т‑Банк.</p>{order.fulfillment_method === "yandex_pickup_point" && <p>Стоимость доставки уточняется.</p>}
         {order.customer_comment && <p className="whitespace-pre-wrap">{order.customer_comment}</p>}
-        {awaitingPayment && <p>Оплата ещё не подтверждена. Если вы уже оплатили, обновите страницу через несколько секунд.</p>}
+        {awaitingPayment && <div className="space-y-3"><p>Проверяем подтверждение оплаты от Т‑Банка.</p><button type="button" onClick={() => void reconcilePayment()} disabled={checkingPayment} className="rounded-xl border border-blue-700 px-4 py-2 font-semibold text-blue-700 disabled:opacity-50">{checkingPayment ? "Проверяем…" : "Проверить оплату"}</button></div>}
         {order.status === "paid" && <p className="font-semibold text-emerald-700">Оплата подтверждена. Заказ передан оператору в работу.</p>}
         {order.status === "new" && <p>Оператор проверит файлы и свяжется с вами для подтверждения.</p>}
         <a className="inline-block font-semibold text-blue-700 underline" href="/">Оформить ещё один заказ</a>
