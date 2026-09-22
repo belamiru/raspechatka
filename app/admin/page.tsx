@@ -24,7 +24,7 @@ type OrderRow = {
   package_height_mm: number | null;
   package_weight_grams: number | null;
   physical_sheet_count: number | null;
-  status: "awaiting_checkout" | "new" | "in_progress" | "ready" | "completed" | "cancelled";
+  status: "awaiting_checkout" | "awaiting_payment" | "paid" | "new" | "in_progress" | "ready" | "completed" | "cancelled";
   created_at: Date;
 
   item_id: string | null;
@@ -112,7 +112,7 @@ export default async function AdminPage() {
       packageHeightMm: number | null;
       packageWeightGrams: number | null;
       physicalSheetCount: number | null;
-      status: "awaiting_checkout" | "new" | "in_progress" | "ready" | "completed" | "cancelled";
+      status: "awaiting_checkout" | "awaiting_payment" | "paid" | "new" | "in_progress" | "ready" | "completed" | "cancelled";
       createdAt: string;
       files: {
         id: string;

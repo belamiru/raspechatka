@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 
 type OrderStatus =
   | "awaiting_checkout"
+  | "awaiting_payment"
+  | "paid"
   | "new"
   | "in_progress"
   | "ready"
@@ -49,6 +51,8 @@ type Order = {
 
 const statuses: { value: OrderStatus; label: string }[] = [
   { value: "awaiting_checkout", label: "Ожидает оформления" },
+  { value: "awaiting_payment", label: "Ожидает оплаты" },
+  { value: "paid", label: "Оплачен" },
   { value: "new", label: "Новый" },
   { value: "in_progress", label: "В работе" },
   { value: "ready", label: "Готов" },
@@ -63,6 +67,8 @@ function getStatusLabel(status: OrderStatus) {
 function getStatusClass(status: OrderStatus) {
   const classes: Record<OrderStatus, string> = {
     awaiting_checkout: "bg-slate-100 text-slate-600",
+    awaiting_payment: "bg-amber-100 text-amber-800",
+    paid: "bg-emerald-100 text-emerald-800",
     new: "bg-blue-100 text-blue-800",
     in_progress: "bg-amber-100 text-amber-800",
     ready: "bg-emerald-100 text-emerald-800",
@@ -375,7 +381,7 @@ export default function AdminOrders({
                         }
                         className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        {statuses.filter(status => order.status === "awaiting_checkout" ? ["awaiting_checkout", "cancelled"].includes(status.value) : status.value !== "awaiting_checkout").map((status) => (
+                        {statuses.filter(status => ["awaiting_checkout", "awaiting_payment"].includes(order.status) ? [order.status, "cancelled"].includes(status.value) : !["awaiting_checkout", "awaiting_payment", "paid"].includes(status.value)).map((status) => (
                           <option key={status.value} value={status.value}>
                             {status.label}
                           </option>

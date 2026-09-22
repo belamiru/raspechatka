@@ -44,7 +44,7 @@ export async function PATCH(
     `
       UPDATE orders
       SET status = $1, updated_at = NOW()
-      WHERE id = $2 AND (status <> 'awaiting_checkout' OR $1 = 'cancelled')
+      WHERE id = $2 AND (status NOT IN ('awaiting_checkout', 'awaiting_payment') OR $1 = 'cancelled')
       RETURNING id, status;
     `,
     [status, orderId]

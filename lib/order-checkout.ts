@@ -22,6 +22,13 @@ export function ensureOrderCheckoutSchema() {
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_point_address TEXT;
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_point_type VARCHAR(40);
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_price INTEGER;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_provider VARCHAR(30);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_id VARCHAR(40);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_order_id VARCHAR(50);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status VARCHAR(40);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_amount INTEGER;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_url TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_attempt INTEGER NOT NULL DEFAULT 0;
     `).then(() => undefined).catch((error) => {
       schemaReady = null;
       throw error;
@@ -44,6 +51,8 @@ export type GuestOrder = {
   pickup_point_address: string | null;
   pickup_point_type: string | null;
   delivery_price: number | null;
+  payment_status: string | null;
+  payment_amount: number | null;
   package_weight_grams: number | null;
 };
 
@@ -54,7 +63,7 @@ export async function getGuestOrder(id: string, token: string | undefined) {
     SELECT id, order_number, customer_name, customer_phone, customer_comment,
            total_price, status, fulfillment_method, payment_method,
            pickup_point_id, pickup_point_address, pickup_point_type, delivery_price,
-           package_weight_grams
+           payment_status, payment_amount, package_weight_grams
     FROM orders WHERE id = $1 AND guest_token_hash = $2
   `, [id, hashGuestToken(token)]);
   return result.rows[0] ?? null;

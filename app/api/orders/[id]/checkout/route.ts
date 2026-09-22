@@ -40,8 +40,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     let pickupPointAddress: string | null = null;
     let pickupPointType: string | null = null;
     if (fulfillmentMethod === "pickup") {
-      if (paymentMethod !== "on_receipt") {
-        return NextResponse.json({ error: "Для самовывоза выберите оплату при получении." }, { status: 400 });
+      if (paymentMethod !== "online") {
+        return NextResponse.json({ error: "Выберите онлайн-оплату." }, { status: 400 });
       }
     } else if (fulfillmentMethod === "yandex_pickup_point") {
       if (paymentMethod !== "on_receipt" || !pickupPoint || typeof pickupPoint !== "object" || Array.isArray(pickupPoint)) {
@@ -63,7 +63,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       UPDATE orders SET customer_name = $1, customer_phone = $2, customer_comment = $3,
         fulfillment_method = $4, payment_method = $5,
         pickup_point_id = $6, pickup_point_address = $7, pickup_point_type = $8,
-        delivery_price = NULL, status = 'new', updated_at = NOW()
+        delivery_price = NULL, status = 'awaiting_payment', updated_at = NOW()
       WHERE id = $9 AND guest_token_hash = $10 AND status = 'awaiting_checkout'
     `, [name, phone, comment || null, fulfillmentMethod, paymentMethod,
       pickupPointId, pickupPointAddress, pickupPointType, id, hashGuestToken(token)]);
