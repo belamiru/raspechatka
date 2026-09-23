@@ -47,6 +47,27 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialOrder.id]);
 
+  async function retryPayment() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      // The server creates a new attempt only after it has confirmed that the
+      // previous payment was rejected/cancelled; it never charges this attempt again.
+      const response = await fetch(`/api/orders/${order.id}/payments/tbank/init`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok || typeof result.paymentUrl !== "string") {
+        throw new Error(result.error ?? "Не удалось начать новую попытку оплаты.");
+      }
+      reachMetrikaGoal("payment_started");
+      window.location.assign(result.paymentUrl);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось начать новую попытку оплаты.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
@@ -84,6 +105,7 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
 
   const pending = order.status === "awaiting_checkout";
   const awaitingPayment = order.status === "awaiting_payment";
+  const retryablePayment = ["REJECTED", "CANCELED", "CANCELLED", "DEADLINE_EXPIRED"].includes(order.payment_status ?? "");
   const deliveryLabel = order.fulfillment_method === "yandex_pickup_point" ? "Доставка в ПВЗ Яндекс Доставки" : "Самовывоз";
   return <main className="min-h-screen bg-slate-50 px-5 py-10 text-slate-900">
     <div className="mx-auto max-w-2xl rounded-2xl bg-white p-6 shadow-sm sm:p-8">
@@ -109,7 +131,7 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
         {order.pickup_point_address && <p>Пункт: {order.pickup_point_address} ({order.pickup_point_type === "terminal" ? "постамат" : "ПВЗ"}).</p>}
         <p>Оплата: онлайн через Т‑Банк.</p>{order.fulfillment_method === "yandex_pickup_point" && <p>Стоимость доставки уточняется.</p>}
         {order.customer_comment && <p className="whitespace-pre-wrap">{order.customer_comment}</p>}
-        {awaitingPayment && <div className="space-y-3"><p>Проверяем подтверждение оплаты от Т‑Банка.</p><button type="button" onClick={() => void reconcilePayment()} disabled={checkingPayment} className="rounded-xl border border-blue-700 px-4 py-2 font-semibold text-blue-700 disabled:opacity-50">{checkingPayment ? "Проверяем…" : "Проверить оплату"}</button></div>}
+        {awaitingPayment && (retryablePayment ? <div className="space-y-3 rounded-xl bg-red-50 p-4 text-red-900"><p className="font-semibold">Оплата не прошла.</p><p className="text-sm">Банк отклонил платёж. Средства по этой попытке не списаны. Можно безопасно начать новую попытку оплаты.</p><button type="button" onClick={() => void retryPayment()} disabled={busy} className="rounded-xl bg-blue-700 px-4 py-2 font-semibold text-white disabled:opacity-50">{busy ? "Переходим к оплате…" : "Попробовать оплатить снова"}</button></div> : <div className="space-y-3"><p>Проверяем подтверждение оплаты от Т‑Банка.</p><button type="button" onClick={() => void reconcilePayment()} disabled={checkingPayment} className="rounded-xl border border-blue-700 px-4 py-2 font-semibold text-blue-700 disabled:opacity-50">{checkingPayment ? "Проверяем…" : "Проверить оплату"}</button></div>)}
         {order.status === "paid" && <p className="font-semibold text-emerald-700">Оплата подтверждена. Заказ передан оператору в работу.</p>}
         {order.status === "new" && <p>Оператор проверит файлы и свяжется с вами для подтверждения.</p>}
         <a className="inline-block font-semibold text-blue-700 underline" href="/">Оформить ещё один заказ</a>
