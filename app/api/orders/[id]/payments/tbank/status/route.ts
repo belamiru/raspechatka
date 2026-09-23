@@ -48,10 +48,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
 
     const confirmed = state.Status === "CONFIRMED";
+    const cancelled = ["CANCELED", "CANCELLED"].includes(state.Status ?? "");
     await db.query(`UPDATE orders SET payment_status = $1,
-        status = CASE WHEN $2 THEN 'paid' ELSE status END, updated_at = NOW()
-      WHERE id = $3 AND guest_token_hash = $4 AND payment_id = $5`,
-      [state.Status || "UNKNOWN", confirmed, id, hashGuestToken(token), saved.payment_id]);
+        status = CASE
+          WHEN $2 THEN 'paid'
+          WHEN $3 AND status IN ('awaiting_payment', 'paid') THEN 'cancelled'
+          ELSE status
+        END,
+        updated_at = NOW()
+      WHERE id = $4 AND guest_token_hash = $5 AND payment_id = $6`,
+      [state.Status || "UNKNOWN", confirmed, cancelled, id, hashGuestToken(token), saved.payment_id]);
     const updated = await getGuestOrder(id, token);
     return NextResponse.json({ order: updated }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {

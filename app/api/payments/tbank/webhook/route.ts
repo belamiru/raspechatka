@@ -43,12 +43,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Не удалось подтвердить платёж." }, { status: 409 });
     }
     const confirmed = state.Status === "CONFIRMED";
+    const cancelled = ["CANCELED", "CANCELLED"].includes(state.Status ?? "");
     await db.query(`
       UPDATE orders SET payment_status = $1,
-        status = CASE WHEN $2 THEN 'paid' ELSE status END,
+        status = CASE
+          WHEN $2 THEN 'paid'
+          WHEN $3 AND status IN ('awaiting_payment', 'paid') THEN 'cancelled'
+          ELSE status
+        END,
         updated_at = NOW()
-      WHERE id = $3 AND payment_id = $4
-    `, [state.Status || "UNKNOWN", confirmed, order.id, paymentId]);
+      WHERE id = $4 AND payment_id = $5
+    `, [state.Status || "UNKNOWN", confirmed, cancelled, order.id, paymentId]);
     // T-Bank treats only a 200 response with the exact text OK as delivered.
     return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   } catch (error) {
