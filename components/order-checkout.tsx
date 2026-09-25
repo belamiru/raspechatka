@@ -18,11 +18,25 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
   const [email, setEmail] = useState(order.customer_email ?? "");
   const [comment, setComment] = useState(order.customer_comment ?? "");
   const [method, setMethod] = useState<"pickup" | "yandex_pickup_point">("pickup");
+  const [paymentMethod, setPaymentMethod] = useState<"online" | "on_receipt">("online");
   const [point, setPoint] = useState<YandexPickupPoint | null>(null);
+  const [deliveryQuote, setDeliveryQuote] = useState<{ priceRubles: number; deliveryDays: number | null } | null>(null);
+  const [quotingDelivery, setQuotingDelivery] = useState(false);
   const [busy, setBusy] = useState(false);
   const [checkingPayment, setCheckingPayment] = useState(false);
   const [error, setError] = useState("");
-  const selectPoint = useCallback((next: YandexPickupPoint | null) => setPoint(next), []);
+  const selectPoint = useCallback((next: YandexPickupPoint | null) => { setPoint(next); setDeliveryQuote(null); }, []);
+
+  useEffect(() => {
+    if (method !== "yandex_pickup_point" || !point) return;
+    let active = true;
+    setQuotingDelivery(true); setError("");
+    void fetch(`/api/orders/${order.id}/delivery/quote`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pickupPointId: point.id }) })
+      .then(async (response) => { const result = await response.json(); if (!response.ok) throw new Error(result.error ?? "Не удалось рассчитать доставку."); if (active) setDeliveryQuote(result); })
+      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Не удалось рассчитать доставку."); })
+      .finally(() => { if (active) setQuotingDelivery(false); });
+    return () => { active = false; };
+  }, [method, order.id, point]);
 
   const reconcilePayment = useCallback(async (showError = true) => {
     if (checkingPayment) return;
@@ -76,6 +90,10 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
       setError("Выберите пункт выдачи на карте Яндекс Доставки.");
       return;
     }
+    if (method === "yandex_pickup_point" && !deliveryQuote) {
+      setError("Дождитесь расчёта стоимости доставки.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -84,12 +102,13 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           customerName: name, customerPhone: phone, customerEmail: email, customerComment: comment,
-          fulfillmentMethod: method, paymentMethod: "online", pickupPoint: point,
+          fulfillmentMethod: method, paymentMethod, pickupPoint: point,
         }),
       });
       const result = await response.json();
       if (!response.ok || !result.order) throw new Error(result.error ?? "Не удалось оформить заказ.");
       setOrder(result.order);
+      if (paymentMethod === "on_receipt") return;
       const payment = await fetch(`/api/orders/${order.id}/payments/tbank/init`, { method: "POST" });
       const paymentResult = await payment.json();
       if (!payment.ok || typeof paymentResult.paymentUrl !== "string") {
@@ -113,7 +132,9 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
       <a href="/" className="font-black text-blue-700">РАСПЕЧАТКА</a>
       <h1 className="mt-6 text-2xl font-bold">{pending ? "Оформление заказа" : (statusLabels[order.status] ?? "Ваш заказ")}</h1>
       <p className="mt-2 text-slate-600">Номер: {order.order_number}</p>
-      <p className="mt-4 text-xl font-bold">Стоимость печати: {order.total_price.toLocaleString("ru-RU")} ₽</p>
+      <p className="mt-4 text-xl font-bold">Стоимость печати: {order.print_price.toLocaleString("ru-RU")} ₽</p>
+      {!pending && order.delivery_price !== null && <p className="mt-2 text-lg font-semibold">Доставка: {order.delivery_price.toLocaleString("ru-RU")} ₽</p>}
+      {!pending && order.delivery_price !== null && <p className="mt-1 text-xl font-bold">Итого: {order.total_price.toLocaleString("ru-RU")} ₽</p>}
       {pending ? <form onSubmit={submit} className="mt-6 space-y-5">
         <p className="text-slate-600">Файлы сохранены. Укажите контакты и перейдите к безопасной оплате на странице Т‑Банка.</p>
         <label className="block font-semibold">Имя *<input required minLength={2} maxLength={120} autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} className={fieldClass} /></label>
@@ -121,13 +142,12 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
         <label className="block font-semibold">Email для кассового чека *<input required type="email" maxLength={254} autoComplete="email" placeholder="name@example.com" value={email} onChange={(event) => setEmail(event.target.value)} className={fieldClass} /></label>
         <label className="block font-semibold">Комментарий<textarea maxLength={2000} rows={3} value={comment} onChange={(event) => setComment(event.target.value)} className={fieldClass} /></label>
         <fieldset className="rounded-xl border border-slate-200 p-4"><legend className="font-bold">Получение</legend><div className="mt-3 space-y-3">
-          <label className="flex cursor-pointer gap-2"><input type="radio" name="fulfillment" checked={method === "pickup"} onChange={() => { setMethod("pickup"); setPoint(null); }} />Самовывоз — бесплатно</label>
-          <label className="flex cursor-pointer gap-2"><input type="radio" name="fulfillment" checked={method === "yandex_pickup_point"} onChange={() => setMethod("yandex_pickup_point")} />Доставка в ПВЗ Яндекс Доставки</label>
-          {method === "yandex_pickup_point" && <><p className="text-sm text-slate-600">Выберите удобный ПВЗ или постамат. Стоимость доставки уточняется — заявка в Яндекс Доставке пока не создаётся.</p><YandexPickupWidget weightGrams={order.package_weight_grams ?? 50} onSelect={selectPoint} />{point && <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">Выбрано: {point.address} · {point.type === "terminal" ? "постамат" : point.type === "pickup_point" ? "ПВЗ" : "пункт выдачи"}</p>}</>}
-        </div></fieldset>
-        <fieldset className="rounded-xl border border-slate-200 p-4"><legend className="font-bold">Оплата</legend><p>Картой или СБП на защищённой странице Т‑Банка.</p>{method === "yandex_pickup_point" && <p className="mt-2 text-sm text-amber-800">Доставка в ПВЗ будет доступна после подключения расчёта её стоимости.</p>}</fieldset>
+          <label className="flex cursor-pointer gap-2"><input type="radio" name="fulfillment" checked={method === "pickup"} onChange={() => { setMethod("pickup"); setPoint(null); setDeliveryQuote(null); }} />Самовывоз — бесплатно</label>
+          <label className="flex cursor-pointer gap-2"><input type="radio" name="fulfillment" checked={method === "yandex_pickup_point"} onChange={() => { setMethod("yandex_pickup_point"); setPaymentMethod("online"); }} />Доставка в ПВЗ Яндекс Доставки — только онлайн-оплата</label>
+        </div>{method === "yandex_pickup_point" && <><YandexPickupWidget weightGrams={Math.max(1, order.package_weight_grams ?? 1)} onSelect={selectPoint} />{point && <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm"><p className="font-semibold">Пункт выдачи: {point.address}</p>{quotingDelivery && <p className="mt-1">Рассчитываем стоимость доставки…</p>}{deliveryQuote && <><p className="mt-1">Доставка: {deliveryQuote.priceRubles.toLocaleString("ru-RU")} ₽</p>{deliveryQuote.deliveryDays !== null && <p>Ориентировочный срок: до {deliveryQuote.deliveryDays} дн.</p>}<p className="mt-1 font-bold">К оплате: {(order.print_price + deliveryQuote.priceRubles).toLocaleString("ru-RU")} ₽</p></>}</div>}</>}</fieldset>
+        {method === "pickup" ? <fieldset className="rounded-xl border border-slate-200 p-4"><legend className="font-bold">Оплата</legend><div className="mt-3 space-y-3"><label className="flex cursor-pointer gap-2"><input type="radio" name="payment" checked={paymentMethod === "online"} onChange={() => setPaymentMethod("online")} />Оплатить онлайн через Т‑Банк</label><label className="flex cursor-pointer gap-2"><input type="radio" name="payment" checked={paymentMethod === "on_receipt"} onChange={() => setPaymentMethod("on_receipt")} />Оплатить при получении</label></div></fieldset> : <p className="text-sm text-slate-600">Оплата: онлайн через Т‑Банк. В сумму войдут печать и доставка.</p>}
         {error && <p role="alert" className="text-red-700">{error}</p>}
-        <button disabled={busy} className="w-full rounded-xl bg-blue-700 px-5 py-3 font-bold text-white disabled:opacity-50">{busy ? "Подтверждаем…" : "Подтвердить заказ"}</button>
+        <button disabled={busy || (method === "yandex_pickup_point" && (!point || !deliveryQuote || quotingDelivery))} className="w-full rounded-xl bg-blue-700 px-4 py-3 font-bold text-white disabled:opacity-50">{busy ? (paymentMethod === "online" ? "Переходим к оплате…" : "Оформляем заказ…") : paymentMethod === "online" ? "Перейти к оплате" : "Оформить заказ"}</button>
       </form> : <div className="mt-6 space-y-3">
         <p>{order.customer_name} · {order.customer_phone}</p><p>Получение: {deliveryLabel}.</p>
         {order.pickup_point_address && <p>Пункт: {order.pickup_point_address} ({order.pickup_point_type === "terminal" ? "постамат" : "ПВЗ"}).</p>}

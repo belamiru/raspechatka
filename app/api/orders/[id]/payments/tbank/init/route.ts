@@ -24,7 +24,7 @@ function receiptEmail(value: string | null) {
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
-function buildReceipt(email: string | null, amountKopecks: number, orderNumber: string) {
+function buildReceipt(email: string | null, printAmountKopecks: number, deliveryAmountKopecks: number, orderNumber: string) {
   const taxation = process.env.TBANK_TAXATION?.trim();
   const tax = process.env.TBANK_RECEIPT_TAX?.trim() || "none";
   const normalizedEmail = receiptEmail(email);
@@ -35,15 +35,26 @@ function buildReceipt(email: string | null, amountKopecks: number, orderNumber: 
   return {
     Email: normalizedEmail,
     Taxation: taxation,
-    Items: [{
-      Name: `Печать документов, заказ ${orderNumber}`.slice(0, 128),
-      Price: amountKopecks,
-      Quantity: 1,
-      Amount: amountKopecks,
-      PaymentMethod: "full_prepayment",
-      PaymentObject: "service",
-      Tax: tax,
-    }],
+    Items: [
+      {
+        Name: `Печать документов, заказ ${orderNumber}`.slice(0, 128),
+        Price: printAmountKopecks,
+        Quantity: 1,
+        Amount: printAmountKopecks,
+        PaymentMethod: "full_prepayment",
+        PaymentObject: "service",
+        Tax: tax,
+      },
+      ...(deliveryAmountKopecks > 0 ? [{
+        Name: "Доставка в пункт выдачи Яндекс Доставки",
+        Price: deliveryAmountKopecks,
+        Quantity: 1,
+        Amount: deliveryAmountKopecks,
+        PaymentMethod: "full_prepayment",
+        PaymentObject: "service",
+        Tax: tax,
+      }] : []),
+    ],
   };
 }
 
@@ -104,7 +115,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       notificationUrl: `${baseUrl}/api/payments/tbank/webhook`,
       successUrl: `${baseUrl}/orders/${order.id}/checkout?payment=success`,
       failUrl: `${baseUrl}/orders/${order.id}/checkout?payment=fail`,
-      receipt: buildReceipt(order.customer_email, order.total_price * 100, order.order_number),
+      receipt: buildReceipt(order.customer_email, order.print_price * 100, (order.delivery_price ?? 0) * 100, order.order_number),
     });
     if (!response.Success || !response.PaymentId || !response.PaymentURL) {
       throw new Error(response.Message || response.Details || "Т‑Банк не создал платёж.");

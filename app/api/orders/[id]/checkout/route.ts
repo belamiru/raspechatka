@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getGuestOrder, hashGuestToken, ORDER_GUEST_COOKIE } from "@/lib/order-checkout";
 import { checkRateLimit, getRequestId, logAppError } from "@/lib/security";
+import { calculateYandexPickupDelivery } from "@/lib/yandex-delivery";
 
 export const runtime = "nodejs";
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -41,13 +42,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     let pickupPointId: string | null = null;
     let pickupPointAddress: string | null = null;
     let pickupPointType: string | null = null;
+    let deliveryPrice: number | null = null;
     if (fulfillmentMethod === "pickup") {
-      if (paymentMethod !== "online") {
-        return NextResponse.json({ error: "Выберите онлайн-оплату." }, { status: 400 });
+      if (paymentMethod !== "online" && paymentMethod !== "on_receipt") {
+        return NextResponse.json({ error: "Выберите способ оплаты." }, { status: 400 });
       }
     } else if (fulfillmentMethod === "yandex_pickup_point") {
-      if (paymentMethod !== "on_receipt" || !pickupPoint || typeof pickupPoint !== "object" || Array.isArray(pickupPoint)) {
-        return NextResponse.json({ error: "Выберите пункт выдачи на карте Яндекс Доставки." }, { status: 400 });
+      if (paymentMethod !== "online" || !pickupPoint || typeof pickupPoint !== "object" || Array.isArray(pickupPoint)) {
+        return NextResponse.json({ error: "Доставка в ПВЗ доступна только с онлайн-оплатой. Выберите пункт выдачи на карте." }, { status: 400 });
       }
       const point = pickupPoint as Record<string, unknown>;
       pickupPointId = typeof point.id === "string" ? point.id.trim() : "";
@@ -60,15 +62,35 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       return NextResponse.json({ error: "Выберите способ получения." }, { status: 400 });
     }
     if (order.status === "cancelled") return NextResponse.json({ error: "Заказ отменён." }, { status: 409 });
+    const db = getDb();
+    const pricing = await db.query<{ print_price: number; package_weight_grams: number; package_width_mm: number; package_length_mm: number; package_height_mm: number }>(`
+      SELECT print_price, package_weight_grams, package_width_mm, package_length_mm, package_height_mm
+      FROM orders WHERE id = $1 AND guest_token_hash = $2 AND status = 'awaiting_checkout'
+    `, [id, hashGuestToken(token)]);
+    const orderForPricing = pricing.rows[0];
+    if (!orderForPricing) return NextResponse.json({ error: "Заказ уже оформлен или недоступен." }, { status: 409 });
+    if (fulfillmentMethod === "yandex_pickup_point") {
+      const quote = await calculateYandexPickupDelivery({
+        pickupPointId: pickupPointId!, printPriceRubles: Number(orderForPricing.print_price),
+        package: {
+          weightGrams: Number(orderForPricing.package_weight_grams), widthMm: Number(orderForPricing.package_width_mm),
+          lengthMm: Number(orderForPricing.package_length_mm), heightMm: Number(orderForPricing.package_height_mm),
+        },
+      });
+      deliveryPrice = quote.priceRubles;
+    }
     // The conditional update also makes retries and concurrent submissions harmless.
-    await getDb().query(`
+    await db.query(`
       UPDATE orders SET customer_name = $1, customer_phone = $2, customer_email = $3, customer_comment = $4,
         fulfillment_method = $5, payment_method = $6,
         pickup_point_id = $7, pickup_point_address = $8, pickup_point_type = $9,
-        delivery_price = NULL, status = 'awaiting_payment', updated_at = NOW()
-      WHERE id = $10 AND guest_token_hash = $11 AND status = 'awaiting_checkout'
+        delivery_price = $10,
+        total_price = print_price + COALESCE($10, 0),
+        status = CASE WHEN $6 = 'on_receipt' THEN 'new' ELSE 'awaiting_payment' END,
+        updated_at = NOW()
+      WHERE id = $11 AND guest_token_hash = $12 AND status = 'awaiting_checkout'
     `, [name, phone, email, comment || null, fulfillmentMethod, paymentMethod,
-      pickupPointId, pickupPointAddress, pickupPointType, id, hashGuestToken(token)]);
+      pickupPointId, pickupPointAddress, pickupPointType, deliveryPrice, id, hashGuestToken(token)]);
     const saved = await getGuestOrder(id, token);
     if (!saved || saved.status === "cancelled") {
       return NextResponse.json({ error: "Заказ недоступен для оформления." }, { status: 409 });

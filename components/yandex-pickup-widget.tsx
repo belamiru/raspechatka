@@ -67,6 +67,9 @@ export function YandexPickupWidget({
           show_select_button: true,
           filter: {
             type: ["pickup_point", "terminal"],
+            // Delivery is paid online on our checkout; do not show payment-on-receipt points.
+            payment_methods: ["already_paid"],
+            payment_methods_filter: "or",
           },
         },
       });
