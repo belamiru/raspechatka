@@ -42,6 +42,7 @@ export type GuestOrder = {
   order_number: string;
   customer_name: string;
   customer_phone: string;
+  customer_email: string | null;
   customer_comment: string | null;
   total_price: number;
   status: string;
@@ -60,7 +61,7 @@ export async function getGuestOrder(id: string, token: string | undefined) {
   if (!/^[1-9][0-9]{0,17}$/.test(id) || !validGuestToken(token)) return null;
   await ensureOrderCheckoutSchema();
   const result = await getDb().query<GuestOrder>(`
-    SELECT id, order_number, customer_name, customer_phone, customer_comment,
+    SELECT id, order_number, customer_name, customer_phone, customer_email, customer_comment,
            total_price, status, fulfillment_method, payment_method,
            pickup_point_id, pickup_point_address, pickup_point_type, delivery_price,
            payment_status, payment_amount, package_weight_grams

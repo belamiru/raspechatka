@@ -28,10 +28,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const data = body as Record<string, unknown>;
     const name = typeof data.customerName === "string" ? data.customerName.trim() : "";
     const phone = typeof data.customerPhone === "string" ? data.customerPhone.trim() : "";
+    const email = typeof data.customerEmail === "string" ? data.customerEmail.trim().toLowerCase() : "";
     const comment = typeof data.customerComment === "string" ? data.customerComment.trim() : "";
     if (name.length < 2 || name.length > 120 || phone.length > 40 ||
-        !/^[+\d ()-]+$/.test(phone) || !/^\d{10,15}$/.test(phone.replace(/\D/g, "")) || comment.length > 2000) {
-      return NextResponse.json({ error: "Проверьте имя, телефон (10–15 цифр) и комментарий (до 2000 символов)." }, { status: 400 });
+        !/^[+\d ()-]+$/.test(phone) || !/^\d{10,15}$/.test(phone.replace(/\D/g, "")) ||
+        email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || comment.length > 2000) {
+      return NextResponse.json({ error: "Проверьте имя, телефон, email для чека и комментарий (до 2000 символов)." }, { status: 400 });
     }
     const fulfillmentMethod = data.fulfillmentMethod;
     const paymentMethod = data.paymentMethod;
@@ -60,12 +62,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (order.status === "cancelled") return NextResponse.json({ error: "Заказ отменён." }, { status: 409 });
     // The conditional update also makes retries and concurrent submissions harmless.
     await getDb().query(`
-      UPDATE orders SET customer_name = $1, customer_phone = $2, customer_comment = $3,
-        fulfillment_method = $4, payment_method = $5,
-        pickup_point_id = $6, pickup_point_address = $7, pickup_point_type = $8,
+      UPDATE orders SET customer_name = $1, customer_phone = $2, customer_email = $3, customer_comment = $4,
+        fulfillment_method = $5, payment_method = $6,
+        pickup_point_id = $7, pickup_point_address = $8, pickup_point_type = $9,
         delivery_price = NULL, status = 'awaiting_payment', updated_at = NOW()
-      WHERE id = $9 AND guest_token_hash = $10 AND status = 'awaiting_checkout'
-    `, [name, phone, comment || null, fulfillmentMethod, paymentMethod,
+      WHERE id = $10 AND guest_token_hash = $11 AND status = 'awaiting_checkout'
+    `, [name, phone, email, comment || null, fulfillmentMethod, paymentMethod,
       pickupPointId, pickupPointAddress, pickupPointType, id, hashGuestToken(token)]);
     const saved = await getGuestOrder(id, token);
     if (!saved || saved.status === "cancelled") {

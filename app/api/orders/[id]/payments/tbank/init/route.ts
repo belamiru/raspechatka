@@ -19,23 +19,21 @@ function appUrl(request: Request) {
 
 const TAXATION_VALUES = new Set(["osn", "usn_income", "usn_income_outcome", "esn", "patent"]);
 
-function receiptPhone(value: string) {
-  const digits = value.replace(/\D/g, "");
-  if (digits.length === 10) return `+7${digits}`;
-  if (digits.length === 11 && (digits.startsWith("7") || digits.startsWith("8"))) return `+7${digits.slice(1)}`;
-  return null;
+function receiptEmail(value: string | null) {
+  const email = value?.trim().toLowerCase() ?? "";
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
-function buildReceipt(phone: string, amountKopecks: number, orderNumber: string) {
+function buildReceipt(email: string | null, amountKopecks: number, orderNumber: string) {
   const taxation = process.env.TBANK_TAXATION?.trim();
   const tax = process.env.TBANK_RECEIPT_TAX?.trim() || "none";
-  const normalizedPhone = receiptPhone(phone);
+  const normalizedEmail = receiptEmail(email);
   if (!taxation || !TAXATION_VALUES.has(taxation)) {
     throw new Error("Не задана корректная TBANK_TAXATION для фискального чека.");
   }
-  if (!normalizedPhone) throw new Error("Не удалось подготовить телефон покупателя для чека.");
+  if (!normalizedEmail) throw new Error("Не указан корректный email покупателя для кассового чека.");
   return {
-    Phone: normalizedPhone,
+    Email: normalizedEmail,
     Taxation: taxation,
     Items: [{
       Name: `Печать документов, заказ ${orderNumber}`.slice(0, 128),
@@ -106,7 +104,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       notificationUrl: `${baseUrl}/api/payments/tbank/webhook`,
       successUrl: `${baseUrl}/orders/${order.id}/checkout?payment=success`,
       failUrl: `${baseUrl}/orders/${order.id}/checkout?payment=fail`,
-      receipt: buildReceipt(order.customer_phone, order.total_price * 100, order.order_number),
+      receipt: buildReceipt(order.customer_email, order.total_price * 100, order.order_number),
     });
     if (!response.Success || !response.PaymentId || !response.PaymentURL) {
       throw new Error(response.Message || response.Details || "Т‑Банк не создал платёж.");

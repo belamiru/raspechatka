@@ -15,6 +15,7 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
   const [order, setOrder] = useState(initialOrder);
   const [name, setName] = useState(order.customer_name);
   const [phone, setPhone] = useState(order.customer_phone);
+  const [email, setEmail] = useState(order.customer_email ?? "");
   const [comment, setComment] = useState(order.customer_comment ?? "");
   const [method, setMethod] = useState<"pickup" | "yandex_pickup_point">("pickup");
   const [point, setPoint] = useState<YandexPickupPoint | null>(null);
@@ -82,7 +83,7 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customerName: name, customerPhone: phone, customerComment: comment,
+          customerName: name, customerPhone: phone, customerEmail: email, customerComment: comment,
           fulfillmentMethod: method, paymentMethod: "online", pickupPoint: point,
         }),
       });
@@ -117,6 +118,7 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
         <p className="text-slate-600">Файлы сохранены. Укажите контакты и перейдите к безопасной оплате на странице Т‑Банка.</p>
         <label className="block font-semibold">Имя *<input required minLength={2} maxLength={120} autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} className={fieldClass} /></label>
         <label className="block font-semibold">Телефон *<input required type="tel" maxLength={40} autoComplete="tel" placeholder="+7 900 000-00-00" value={phone} onChange={(event) => setPhone(event.target.value)} className={fieldClass} /></label>
+        <label className="block font-semibold">Email для кассового чека *<input required type="email" maxLength={254} autoComplete="email" placeholder="name@example.com" value={email} onChange={(event) => setEmail(event.target.value)} className={fieldClass} /></label>
         <label className="block font-semibold">Комментарий<textarea maxLength={2000} rows={3} value={comment} onChange={(event) => setComment(event.target.value)} className={fieldClass} /></label>
         <fieldset className="rounded-xl border border-slate-200 p-4"><legend className="font-bold">Получение</legend><div className="mt-3 space-y-3">
           <label className="flex cursor-pointer gap-2"><input type="radio" name="fulfillment" checked={method === "pickup"} onChange={() => { setMethod("pickup"); setPoint(null); }} />Самовывоз — бесплатно</label>
