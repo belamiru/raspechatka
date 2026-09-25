@@ -67,6 +67,7 @@ function ensureSchema() {
           fulfillment_method VARCHAR(30) NOT NULL DEFAULT 'pickup',
           status VARCHAR(30) NOT NULL DEFAULT 'new',
           total_price INTEGER NOT NULL,
+          print_price INTEGER,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -603,6 +604,7 @@ export async function POST(request: Request) {
             fulfillment_method,
             status,
             total_price,
+            print_price,
             guest_token_hash,
             package_width_mm,
             package_length_mm,
@@ -610,7 +612,7 @@ export async function POST(request: Request) {
             package_weight_grams,
             physical_sheet_count
           )
-          VALUES ($1, '', '', NULL, NULL, 'pickup', 'awaiting_checkout', $2, $3, $4, $5, $6, $7, $8)
+          VALUES ($1, '', '', NULL, NULL, 'pickup', 'awaiting_checkout', $2, $2, $3, $4, $5, $6, $7, $8)
           RETURNING id;
         `,
         [

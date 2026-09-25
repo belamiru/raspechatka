@@ -64,7 +64,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (order.status === "cancelled") return NextResponse.json({ error: "Заказ отменён." }, { status: 409 });
     const db = getDb();
     const pricing = await db.query<{ print_price: number; package_weight_grams: number; package_width_mm: number; package_length_mm: number; package_height_mm: number }>(`
-      SELECT print_price, package_weight_grams, package_width_mm, package_length_mm, package_height_mm
+      SELECT COALESCE(print_price, total_price) AS print_price,
+             package_weight_grams, package_width_mm, package_length_mm, package_height_mm
       FROM orders WHERE id = $1 AND guest_token_hash = $2 AND status = 'awaiting_checkout'
     `, [id, hashGuestToken(token)]);
     const orderForPricing = pricing.rows[0];
@@ -85,7 +86,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         fulfillment_method = $5, payment_method = $6,
         pickup_point_id = $7, pickup_point_address = $8, pickup_point_type = $9,
         delivery_price = $10,
-        total_price = print_price + COALESCE($10, 0),
+        print_price = COALESCE(print_price, total_price),
+        total_price = COALESCE(print_price, total_price) + COALESCE($10, 0),
         status = CASE WHEN $6 = 'on_receipt' THEN 'new' ELSE 'awaiting_payment' END,
         updated_at = NOW()
       WHERE id = $11 AND guest_token_hash = $12 AND status = 'awaiting_checkout'
