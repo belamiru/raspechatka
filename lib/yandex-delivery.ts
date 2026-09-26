@@ -93,6 +93,8 @@ export async function createYandexPickupDelivery({ orderNumber, pickupPointId, r
       source: { platform_station: { platform_id: YANDEX_DELIVERY_SOURCE_PLATFORM_STATION_ID } },
       destination: { type: "platform_station", platform_station: { platform_id: pickupPointId } },
       last_mile_policy: "self_pickup",
+      // The customer has paid both printing and delivery through T-Bank.
+      billing_info: { payment_method: "already_paid", delivery_cost: 0 },
       places: [{
         barcode: `print-${orderNumber}`.slice(0, 100),
         physical_dims: {
