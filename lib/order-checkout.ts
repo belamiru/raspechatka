@@ -31,6 +31,10 @@ export function ensureOrderCheckoutSchema() {
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_amount INTEGER;
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_url TEXT;
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_attempt INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS yandex_delivery_request_id VARCHAR(200);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS yandex_delivery_status VARCHAR(40);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS yandex_delivery_error TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS yandex_delivery_created_at TIMESTAMPTZ;
     `).then(() => undefined).catch((error) => {
       schemaReady = null;
       throw error;

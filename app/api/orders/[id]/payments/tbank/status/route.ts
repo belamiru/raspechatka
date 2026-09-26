@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { getGuestOrder, hashGuestToken, ORDER_GUEST_COOKIE } from "@/lib/order-checkout";
 import { checkRateLimit, getRequestId, logAppError } from "@/lib/security";
 import { getTbankPaymentState, getTbankTerminalKey } from "@/lib/tbank";
+import { createYandexDeliveryForPaidOrder } from "@/lib/yandex-order-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +59,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         updated_at = NOW()
       WHERE id = $4 AND guest_token_hash = $5 AND payment_id = $6`,
       [state.Status || "UNKNOWN", confirmed, cancelled, id, hashGuestToken(token), saved.payment_id]);
+    if (confirmed) await createYandexDeliveryForPaidOrder(id);
     const updated = await getGuestOrder(id, token);
     return NextResponse.json({ order: updated }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {

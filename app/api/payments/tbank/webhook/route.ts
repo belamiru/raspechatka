@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { ensureOrderCheckoutSchema } from "@/lib/order-checkout";
 import { getTbankPaymentState, getTbankTerminalKey, isValidTbankToken } from "@/lib/tbank";
 import { getRequestId, logAppError } from "@/lib/security";
+import { createYandexDeliveryForPaidOrder } from "@/lib/yandex-order-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
         updated_at = NOW()
       WHERE id = $4 AND payment_id = $5
     `, [state.Status || "UNKNOWN", confirmed, cancelled, order.id, paymentId]);
+    if (confirmed) await createYandexDeliveryForPaidOrder(order.id);
     // T-Bank treats only a 200 response with the exact text OK as delivered.
     return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   } catch (error) {
