@@ -88,7 +88,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         delivery_price = $10,
         print_price = COALESCE(print_price, total_price),
         total_price = COALESCE(print_price, total_price) + COALESCE($10, 0),
-        status = CASE WHEN $6 = 'on_receipt' THEN 'new' ELSE 'awaiting_payment' END,
+        status = CASE WHEN $6::text = 'on_receipt' THEN 'new' ELSE 'awaiting_payment' END,
         updated_at = NOW()
       WHERE id = $11 AND guest_token_hash = $12 AND status = 'awaiting_checkout'
     `, [name, phone, email, comment || null, fulfillmentMethod, paymentMethod,
