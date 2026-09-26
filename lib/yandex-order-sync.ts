@@ -3,7 +3,7 @@ import { createYandexPickupDelivery } from "@/lib/yandex-delivery";
 
 type ClaimedOrder = {
   id: string; order_number: string; pickup_point_id: string; customer_name: string;
-  customer_phone: string; customer_email: string | null; package_weight_grams: number;
+  customer_phone: string; customer_email: string | null; print_price: number; package_weight_grams: number;
   package_width_mm: number; package_length_mm: number; package_height_mm: number;
 };
 
@@ -14,7 +14,7 @@ export async function createYandexDeliveryForPaidOrder(orderId: string) {
     UPDATE orders SET yandex_delivery_status = 'creating', yandex_delivery_error = NULL, updated_at = NOW()
     WHERE id = $1 AND status = 'paid' AND fulfillment_method = 'yandex_pickup_point'
       AND yandex_delivery_request_id IS NULL AND COALESCE(yandex_delivery_status, '') <> 'creating'
-    RETURNING id, order_number, pickup_point_id, customer_name, customer_phone, customer_email,
+    RETURNING id, order_number, pickup_point_id, customer_name, customer_phone, customer_email, print_price,
       package_weight_grams, package_width_mm, package_length_mm, package_height_mm
   `, [orderId]);
   const order = claimed.rows[0];
@@ -24,6 +24,7 @@ export async function createYandexDeliveryForPaidOrder(orderId: string) {
     const result = await createYandexPickupDelivery({
       orderNumber: order.order_number,
       pickupPointId: order.pickup_point_id,
+      printPriceRubles: Number(order.print_price),
       recipient: { name: order.customer_name, phone: order.customer_phone, email: order.customer_email },
       package: {
         weightGrams: Number(order.package_weight_grams), widthMm: Number(order.package_width_mm),

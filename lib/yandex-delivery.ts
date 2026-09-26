@@ -72,13 +72,14 @@ export async function calculateYandexPickupDelivery({ pickupPointId, printPriceR
 }
 
 // This call is intentionally made only after T-Bank confirms payment.
-export async function createYandexPickupDelivery({ orderNumber, pickupPointId, recipient, package: parcel }: {
-  orderNumber: string; pickupPointId: string; recipient: Recipient; package: Package;
+export async function createYandexPickupDelivery({ orderNumber, pickupPointId, printPriceRubles, recipient, package: parcel }: {
+  orderNumber: string; pickupPointId: string; printPriceRubles: number; recipient: Recipient; package: Package;
 }) {
   const token = getToken();
   const merchantId = process.env.YANDEX_DELIVERY_MERCHANT_ID?.trim();
   if (!merchantId) throw new Error("Не задан YANDEX_DELIVERY_MERCHANT_ID для создания заказа Яндекс Доставки.");
   if (!validPickupPointId(pickupPointId)) throw new Error("Некорректный пункт выдачи.");
+  if (!Number.isSafeInteger(printPriceRubles) || printPriceRubles < 0) throw new Error("Некорректная стоимость печати для заявки Яндекс Доставки.");
   validatePackage(parcel);
   const response = await fetch(YANDEX_DELIVERY_CREATE_API, {
     method: "POST",
@@ -95,6 +96,19 @@ export async function createYandexPickupDelivery({ orderNumber, pickupPointId, r
       last_mile_policy: "self_pickup",
       // The customer has paid both printing and delivery through T-Bank.
       billing_info: { payment_method: "already_paid", delivery_cost: 0 },
+      items: [{
+        count: 1,
+        name: `Печать документов, заказ ${orderNumber}`.slice(0, 255),
+        article: "document-printing",
+        place_barcode: `print-${orderNumber}`.slice(0, 100),
+        physical_dims: {
+          dx: toCentimeters(parcel.widthMm), dy: toCentimeters(parcel.lengthMm), dz: toCentimeters(parcel.heightMm),
+        },
+        billing_details: {
+          unit_price: printPriceRubles * 100,
+          assessed_unit_price: printPriceRubles * 100,
+        },
+      }],
       places: [{
         barcode: `print-${orderNumber}`.slice(0, 100),
         physical_dims: {
