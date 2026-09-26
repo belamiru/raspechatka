@@ -46,7 +46,7 @@ export async function calculateYandexPickupDelivery({ pickupPointId, printPriceR
   validatePackage(parcel);
   const response = await fetch(YANDEX_DELIVERY_PRICING_API, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "Accept-Language": "ru-RU" },
     body: JSON.stringify({
       source: { platform_station_id: YANDEX_DELIVERY_SOURCE_PLATFORM_STATION_ID },
       destination: { platform_station_id: pickupPointId },
@@ -82,7 +82,7 @@ export async function createYandexPickupDelivery({ orderNumber, pickupPointId, r
   validatePackage(parcel);
   const response = await fetch(YANDEX_DELIVERY_CREATE_API, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "Accept-Language": "ru-RU" },
     body: JSON.stringify({
       info: {
         // Stable merchant-side ID makes repeated T-Bank notifications idempotent in Yandex.
