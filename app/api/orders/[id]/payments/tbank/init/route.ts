@@ -70,8 +70,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const token = (await cookies()).get(ORDER_GUEST_COOKIE)?.value;
     const order = await getGuestOrder(id, token);
     if (!order || !token) return NextResponse.json({ error: "Заказ не найден." }, { status: 404 });
-    if (order.fulfillment_method !== "pickup") {
-      return NextResponse.json({ error: "Оплата доставки будет доступна после подключения расчёта её стоимости." }, { status: 409 });
+    if (order.fulfillment_method !== "pickup" && order.fulfillment_method !== "yandex_pickup_point") {
+      return NextResponse.json({ error: "Этот способ получения недоступен для онлайн-оплаты." }, { status: 409 });
     }
     if (order.status === "paid") return NextResponse.json({ error: "Этот заказ уже оплачен." }, { status: 409 });
     if (order.status !== "awaiting_payment") {
