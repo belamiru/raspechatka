@@ -81,8 +81,10 @@ async function tokenRequest(fields: Record<string, string>) {
   });
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok || !body || typeof body !== "object") {
-    const detail = body && typeof body === "object" && typeof (body as Record<string, unknown>).message === "string"
-      ? (body as Record<string, unknown>).message : `Ozon вернул HTTP ${response.status} при получении токена.`;
+    const errorBody = body && typeof body === "object" ? body as Record<string, unknown> : null;
+    const detail = typeof errorBody?.message === "string"
+      ? errorBody.message
+      : `Ozon вернул HTTP ${response.status} при получении токена.`;
     throw new Error(detail);
   }
   return body as TokenResponse;
