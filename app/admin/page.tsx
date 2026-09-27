@@ -180,5 +180,5 @@ export default async function AdminPage() {
 
   const orders = Array.from(ordersById.values());
 
-  return <AdminOrders initialOrders={orders} />;
+  return <><div className="mx-auto max-w-7xl px-6 pt-6"><a href="/admin/ozon-delivery" className="text-sm font-semibold text-blue-700 underline">Настроить Ozon Доставку</a></div><AdminOrders initialOrders={orders} /></>;
 }
