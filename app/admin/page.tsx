@@ -2,7 +2,6 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAdminCookieName, isAdminSession } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { ensureOrderCheckoutSchema } from "@/lib/order-checkout";
 import AdminOrders from "./admin-orders";
 
 export const dynamic = "force-dynamic";
@@ -20,9 +19,6 @@ type OrderRow = {
   pickup_point_address: string | null;
   pickup_point_type: string | null;
   delivery_price: number | null;
-  yandex_delivery_request_id: string | null;
-  yandex_delivery_status: string | null;
-  yandex_delivery_error: string | null;
   package_width_mm: number | null;
   package_length_mm: number | null;
   package_height_mm: number | null;
@@ -54,8 +50,6 @@ export default async function AdminPage() {
     redirect("/admin/login");
   }
 
-  await ensureOrderCheckoutSchema();
-
   /*
    * LEFT JOIN возвращает строку для каждой позиции заказа.
    * Ниже эти строки группируются по orders.id, чтобы в админке
@@ -75,9 +69,6 @@ export default async function AdminPage() {
       orders.pickup_point_address,
       orders.pickup_point_type,
       orders.delivery_price,
-      orders.yandex_delivery_request_id,
-      orders.yandex_delivery_status,
-      orders.yandex_delivery_error,
       orders.package_width_mm,
       orders.package_length_mm,
       orders.package_height_mm,
@@ -116,9 +107,6 @@ export default async function AdminPage() {
       pickupPointAddress: string | null;
       pickupPointType: string | null;
       deliveryPrice: number | null;
-      yandexDeliveryRequestId: string | null;
-      yandexDeliveryStatus: string | null;
-      yandexDeliveryError: string | null;
       packageWidthMm: number | null;
       packageLengthMm: number | null;
       packageHeightMm: number | null;
@@ -158,9 +146,6 @@ export default async function AdminPage() {
         pickupPointAddress: row.pickup_point_address,
         pickupPointType: row.pickup_point_type,
         deliveryPrice: row.delivery_price,
-        yandexDeliveryRequestId: row.yandex_delivery_request_id,
-        yandexDeliveryStatus: row.yandex_delivery_status,
-        yandexDeliveryError: row.yandex_delivery_error,
         packageWidthMm: row.package_width_mm,
         packageLengthMm: row.package_length_mm,
         packageHeightMm: row.package_height_mm,
