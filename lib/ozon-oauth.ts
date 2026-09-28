@@ -36,7 +36,18 @@ function decrypt(value: string) {
 }
 
 export function getOzonRedirectUri() {
-  return `${getRequiredEnv("APP_URL").replace(/\/$/, "")}/api/integrations/ozon/callback`;
+  const appUrl = getRequiredEnv("APP_URL");
+  let url: URL;
+  try {
+    url = new URL(appUrl);
+  } catch {
+    throw new Error("APP_URL должен содержать полный адрес сайта, например https://example.ru.");
+  }
+  if (!["https:", "http:"].includes(url.protocol) || url.username || url.password
+    || url.pathname !== "/" || url.search || url.hash) {
+    throw new Error("APP_URL должен содержать только адрес сайта со схемой http:// или https://, без пути, параметров и учётных данных.");
+  }
+  return `${url.origin}/api/integrations/ozon/callback`;
 }
 
 export function newOauthState() {
@@ -52,7 +63,7 @@ export function getOzonAuthorizationUrl(state: string) {
     redirect_uri: getOzonRedirectUri(),
     state,
     access_type: "offline",
-    scope: "seller-api-ozon-logistics",
+    scope: "seller-api.ozon-logistics",
   });
   return `https://xapi.ozon.ru/oauth/authorize?${params.toString()}`;
 }
