@@ -39,6 +39,9 @@ type Order = {
   pickupPointAddress: string | null;
   pickupPointType: string | null;
   deliveryPrice: number | null;
+  yandexDeliveryRequestId: string | null;
+  yandexDeliveryStatus: string | null;
+  yandexDeliveryError: string | null;
   packageWidthMm: number | null;
   packageLengthMm: number | null;
   packageHeightMm: number | null;
@@ -158,9 +161,32 @@ export default function AdminOrders({
   const router = useRouter();
   const [orders, setOrders] = useState(initialOrders);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [retryingDeliveryId, setRetryingDeliveryId] = useState<string | null>(null);
   const [isCleaningDrafts, setIsCleaningDrafts] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState("");
   const [error, setError] = useState("");
+
+  async function retryYandexDelivery(id: string) {
+    setError("");
+    setRetryingDeliveryId(id);
+    try {
+      const response = await fetch(`/api/admin/orders/${id}/yandex-delivery`, { method: "POST" });
+      const result = await response.json().catch(() => null) as { deliveryRequestId?: string; error?: string } | null;
+      if (!response.ok || !result?.deliveryRequestId) {
+        setError(result?.error ?? "Не удалось создать заявку на доставку.");
+        return;
+      }
+      const deliveryRequestId = result.deliveryRequestId;
+      setOrders((current) => current.map((order) => order.id === id ? {
+        ...order, yandexDeliveryRequestId: deliveryRequestId,
+        yandexDeliveryStatus: "created", yandexDeliveryError: null,
+      } : order));
+    } catch {
+      setError("Ошибка соединения. Обновите страницу, чтобы проверить статус заявки.");
+    } finally {
+      setRetryingDeliveryId(null);
+    }
+  }
 
   async function changeStatus(id: string, status: OrderStatus) {
     setError("");
@@ -423,6 +449,18 @@ export default function AdminOrders({
                           <p>{order.pickupPointAddress ?? "Пункт ещё не выбран"}</p>
                           {order.pickupPointType && <p>{order.pickupPointType === "terminal" ? "Постамат" : "ПВЗ"}{order.pickupPointId ? ` · ID: ${order.pickupPointId}` : ""}</p>}
                           <p>{order.deliveryPrice === null ? "Стоимость доставки уточняется" : `Доставка: ${order.deliveryPrice} ₽`}</p>
+                          {order.yandexDeliveryRequestId ? (
+                            <p className="break-all text-emerald-700">Заявка создана: {order.yandexDeliveryRequestId}</p>
+                          ) : (
+                            <p>{order.yandexDeliveryStatus === "creating" ? "Создаём заявку на доставку…" : "Заявка на доставку ещё не создана"}</p>
+                          )}
+                          {order.yandexDeliveryError && <p className="break-words text-red-700">{order.yandexDeliveryError}</p>}
+                          {order.status === "paid" && !order.yandexDeliveryRequestId && order.yandexDeliveryStatus !== "creating" && (
+                            <button type="button" disabled={retryingDeliveryId !== null} onClick={() => retryYandexDelivery(order.id)}
+                              className="mt-2 rounded-lg bg-blue-700 px-3 py-2 font-semibold text-white disabled:opacity-50">
+                              {retryingDeliveryId === order.id ? "Отправляем…" : "Создать заявку на доставку"}
+                            </button>
+                          )}
                         </div>
                       ) : <p className="mt-2 text-sm text-slate-700">Самовывоз · бесплатно</p>}
                     </div>

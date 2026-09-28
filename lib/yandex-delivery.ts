@@ -77,7 +77,6 @@ export async function createYandexPickupDelivery({ orderNumber, pickupPointId, p
 }) {
   const token = getToken();
   const merchantId = process.env.YANDEX_DELIVERY_MERCHANT_ID?.trim();
-  if (!merchantId) throw new Error("Не задан YANDEX_DELIVERY_MERCHANT_ID для создания заказа Яндекс Доставки.");
   if (!validPickupPointId(pickupPointId)) throw new Error("Некорректный пункт выдачи.");
   if (!Number.isSafeInteger(printPriceRubles) || printPriceRubles < 0) throw new Error("Некорректная стоимость печати для заявки Яндекс Доставки.");
   validatePackage(parcel);
@@ -88,7 +87,8 @@ export async function createYandexPickupDelivery({ orderNumber, pickupPointId, p
       info: {
         // Stable merchant-side ID makes repeated T-Bank notifications idempotent in Yandex.
         operator_request_id: `print-${orderNumber}`.slice(0, 50),
-        merchant_id: merchantId,
+        // Yandex requires this only for senders with registered merchants.
+        ...(merchantId ? { merchant_id: merchantId } : {}),
         comment: `Оплаченный заказ ${orderNumber}`.slice(0, 500),
       },
       source: { platform_station: { platform_id: YANDEX_DELIVERY_SOURCE_PLATFORM_STATION_ID } },
@@ -121,7 +121,8 @@ export async function createYandexPickupDelivery({ orderNumber, pickupPointId, p
   });
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok || !body || typeof body !== "object") {
-    throw new Error(`Яндекс Доставка не создала заявку${yandexError(body) ? `: ${yandexError(body)}` : "."}`);
+    const detail = yandexError(body);
+    throw new Error(`Яндекс Доставка не создала заявку (HTTP ${response.status})${detail ? `: ${detail}` : "."}`);
   }
   const requestId = (body as Record<string, unknown>).request_id;
   if (typeof requestId !== "string" || requestId.length < 1 || requestId.length > 200) {
