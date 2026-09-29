@@ -52,7 +52,7 @@ export function getOzonAuthorizationUrl(state: string) {
     redirect_uri: getOzonRedirectUri(),
     state,
     access_type: "offline",
-    scope: "seller-api-ozon-logistics",
+    scope: "seller-api.ozon-logistics",
   });
   return `https://xapi.ozon.ru/oauth/authorize?${params.toString()}`;
 }
