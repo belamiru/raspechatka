@@ -54,7 +54,7 @@ export function getOzonAuthorizationUrl(state: string) {
     access_type: "offline",
     scope: "seller-api.ozon-logistics",
   });
-  return `https://xapi.ozon.ru/oauth/authorize?${params.toString()}`;
+  return `https://seller.ozon.ru/app/appstore/oauth/authorize?${params.toString()}`;
 }
 
 export async function ensureOzonOauthSchema() {
