@@ -1,23 +1,33 @@
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { OzonDeliveryConnectionCheck } from "@/components/ozon-delivery-connection-check";
 import { getAdminCookieName, isAdminSession } from "@/lib/auth";
-import { getOzonConnectionStatus } from "@/lib/ozon-oauth";
+import { getOzonDeliveryConfiguration } from "@/lib/ozon-delivery";
 
 export const dynamic = "force-dynamic";
 
-export default async function OzonDeliveryAdminPage({ searchParams }: { searchParams: Promise<{ error?: string; connected?: string }> }) {
+export default async function OzonDeliveryAdminPage() {
   const cookieStore = await cookies();
   if (!await isAdminSession(cookieStore.get(getAdminCookieName())?.value)) redirect("/admin/login");
-  const params = await searchParams;
-  const connection = await getOzonConnectionStatus();
-  return <main className="mx-auto max-w-2xl p-6"><Link href="/admin" className="text-sm text-blue-700 underline">← К заказам</Link>
+  const configuration = getOzonDeliveryConfiguration();
+
+  return <main className="mx-auto max-w-2xl p-6">
+    <Link href="/admin" className="text-sm text-blue-700 underline">← К заказам</Link>
     <h1 className="mt-5 text-2xl font-bold">Ozon Доставка</h1>
-    {params.error && <p className="mt-4 rounded-xl bg-red-50 p-4 text-red-800">{params.error}</p>}
-    {params.connected === "1" && <p className="mt-4 rounded-xl bg-green-50 p-4 text-green-800">Ozon Доставка успешно подключена.</p>}
-    <section className="mt-5 rounded-xl border border-slate-200 p-5"><p>Статус: <strong>{connection.connected ? "подключено" : "не подключено"}</strong></p>
-      {connection.updatedAt && <p className="mt-2 text-sm text-slate-600">Токены сохранены: {new Date(connection.updatedAt).toLocaleString("ru-RU")}</p>}
-      <p className="mt-4 text-sm text-slate-600">Подключение откроет Ozon для однократного подтверждения доступа. Секреты и токены не передаются в браузер.</p>
-      <a href="/api/admin/ozon-delivery/connect" className="mt-4 inline-block rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white">{connection.connected ? "Подключить заново" : "Подключить Ozon Доставку"}</a>
-    </section></main>;
+    <section className="mt-5 rounded-xl border border-slate-200 p-5">
+      <p>Авторизация: <strong>server-to-server (client credentials)</strong></p>
+      <p className="mt-2 text-sm text-slate-600">
+        Для этого приложения не нужны redirect URL, OAuth callback или ручное подключение через браузер. Токен запрашивается только сервером и не сохраняется в браузере.
+      </p>
+      <p className="mt-3 text-sm text-slate-600">
+        Переменные: <code>OZON_DELIVERY_CLIENT_ID</code>, <code>OZON_DELIVERY_CLIENT_SECRET</code>.
+      </p>
+    </section>
+    <OzonDeliveryConnectionCheck configured={configuration.configured} />
+    <section className="mt-5 rounded-xl border border-slate-200 p-5 text-sm text-slate-600">
+      <h2 className="text-lg font-bold text-slate-900">Следующий шаг</h2>
+      <p className="mt-2">После успешной проверки добавим выбор пункта отгрузки, пункта возвратов и создание постоянного метода <code>dropoff</code>. Затем Ozon появится у покупателя как вариант доставки в ПВЗ.</p>
+    </section>
+  </main>;
 }
