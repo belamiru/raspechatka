@@ -2,8 +2,10 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { OzonDeliveryConnectionCheck } from "@/components/ozon-delivery-connection-check";
+import { OzonShipmentMethodSettings } from "@/components/ozon-shipment-method-settings";
 import { getAdminCookieName, isAdminSession } from "@/lib/auth";
 import { getOzonDeliveryConfiguration } from "@/lib/ozon-delivery";
+import { getOzonShipmentMethod } from "@/lib/ozon-shipment-method";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +13,7 @@ export default async function OzonDeliveryAdminPage() {
   const cookieStore = await cookies();
   if (!await isAdminSession(cookieStore.get(getAdminCookieName())?.value)) redirect("/admin/login");
   const configuration = getOzonDeliveryConfiguration();
+  const shipmentMethod = await getOzonShipmentMethod();
 
   return <main className="mx-auto max-w-2xl p-6">
     <Link href="/admin" className="text-sm text-blue-700 underline">← К заказам</Link>
@@ -25,6 +28,7 @@ export default async function OzonDeliveryAdminPage() {
       </p>
     </section>
     <OzonDeliveryConnectionCheck configured={configuration.configured} />
+    <OzonShipmentMethodSettings initialMethod={shipmentMethod} />
     <section className="mt-5 rounded-xl border border-slate-200 p-5 text-sm text-slate-600">
       <h2 className="text-lg font-bold text-slate-900">Следующий шаг</h2>
       <p className="mt-2">После успешной проверки добавим выбор пункта отгрузки, пункта возвратов и создание постоянного метода <code>dropoff</code>. Затем Ozon появится у покупателя как вариант доставки в ПВЗ.</p>
