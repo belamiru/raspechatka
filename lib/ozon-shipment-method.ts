@@ -94,8 +94,15 @@ function mapStoredPoint(id: string, title: string, address: string): OzonPoint {
 
 export async function searchOzonPoints(kind: "dropoff" | "return") {
   const path = kind === "dropoff" ? "/v1/dropoff-point/search" : "/v1/return-point/search";
-  // Both search endpoints return only points available to the authenticated Ozon Delivery account.
-  const response = await postOzonDeliveryApi(path, {});
+  // pagination is mandatory for both endpoints. shipment_method_id is optional
+  // for return-point search, so it must not be sent before a method exists.
+  const filters = kind === "dropoff"
+    ? { is_bulky: false, types: ["pvz"], address_search: "Воронеж" }
+    : { types: ["pvz"] };
+  const response = await postOzonDeliveryApi(path, {
+    filters,
+    pagination: { cursor: "", limit: 100 },
+  });
   return pointsFromResponse(response);
 }
 
