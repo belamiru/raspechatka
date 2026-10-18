@@ -96,9 +96,29 @@ export async function searchOzonPoints(kind: "dropoff" | "return") {
   const path = kind === "dropoff" ? "/v1/dropoff-point/search" : "/v1/return-point/search";
   // pagination is mandatory for both endpoints. shipment_method_id is optional
   // for return-point search, so it must not be sent before a method exists.
+    // Прямоугольная область вокруг Воронежа, не точные границы города.
+  const viewport = {
+    left_bottom: {
+      latitude: 51.4,
+      longitude: 38.9,
+    },
+    right_top: {
+      latitude: 51.9,
+      longitude: 39.5,
+    },
+  };
+
   const filters = kind === "dropoff"
-    ? { is_bulky: false, types: ["pvz"], address_search: "Воронеж" }
-    : { types: ["pvz"] };
+    ? {
+        is_bulky: false,
+        types: ["pvz"],
+        address_search: "Воронеж",
+        viewport,
+      }
+    : {
+        types: ["pvz"],
+        viewport,
+      };
   const response = await postOzonDeliveryApi(path, {
     filters,
     pagination: { cursor: "", limit: 100 },
