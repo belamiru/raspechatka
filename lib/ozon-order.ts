@@ -30,6 +30,7 @@ export type OzonDeliveryQuote = {
 const POINTS_CACHE_TTL_MS = 10 * 60 * 1000;
 const POINTS_PAGE_LIMIT = 100;
 const POINTS_MAX_PAGES = 20;
+const POINTS_INFO_BATCH = 100;
 let pointsCache: { points: OzonDeliveryPoint[]; expiresAt: number } | null = null;
 
 /** Ozon accepts only +7XXXXXXXXXX for customer phone numbers. */
@@ -122,27 +123,54 @@ export async function checkOzonClient(phone: string) {
   return records(response).some((record) => record.can_be_delivered === true);
 }
 
-/** POST /v1/delivery-point/list — full catalogue, filtered on our side. */
-async function loadOzonDeliveryPoints() {
-  if (pointsCache && pointsCache.expiresAt > Date.now()) return pointsCache.points;
-  const unique = new Map<string, OzonDeliveryPoint>();
+/**
+ * POST /v1/delivery-point/list returns ONLY { delivery_point_id, shipment_method_ids }.
+ * Address, type and coordinates live behind /v1/delivery-point/info, so the
+ * catalogue is assembled in two steps: collect ids, then hydrate them in batches.
+ */
+async function fetchOzonDeliveryPointIds() {
+  const ids = new Set<string>();
+  const seenCursors = new Set<string>();
   let cursor = "";
   for (let page = 0; page < POINTS_MAX_PAGES; page += 1) {
     const response = await postOzonDeliveryApi("/v1/delivery-point/list", {
       // cursor is nullable: an empty string is rejected by Ozon.
       pagination: cursor ? { limit: POINTS_PAGE_LIMIT, cursor } : { limit: POINTS_PAGE_LIMIT },
     });
-    const items = records(response);
-    for (const item of items) {
+    for (const item of records(response)) {
+      const id = text(item, ["delivery_point_id"]);
+      if (/^\d+$/.test(id)) ids.add(id);
+    }
+    // next_cursor sits at the top level of the response, not inside the items.
+    const next = text(response, ["next_cursor"])
+      || records(response).map((item) => text(item, ["next_cursor"])).find(Boolean)
+      || "";
+    if (!next || next === cursor || seenCursors.has(next)) break;
+    seenCursors.add(next);
+    cursor = next;
+  }
+  return [...ids];
+}
+
+/** POST /v1/delivery-point/info — details for up to POINTS_INFO_BATCH ids at a time. */
+async function fetchOzonDeliveryPointDetails(ids: string[]) {
+  const unique = new Map<string, OzonDeliveryPoint>();
+  for (let start = 0; start < ids.length; start += POINTS_INFO_BATCH) {
+    const batch = ids.slice(start, start + POINTS_INFO_BATCH).map(Number);
+    const response = await postOzonDeliveryApi("/v1/delivery-point/info", {
+      delivery_point_ids: batch,
+    });
+    for (const item of records(response)) {
       const id = text(item, ["delivery_point_id"]);
       const type = text(item, ["type"]).toLowerCase();
       const address = text(item, ["full_address", "address"]);
-      if (!/^\d+$/.test(id) || !address || item.is_active === false) continue;
+      if (!/^\d+$/.test(id) || !address) continue;
+      if (item.is_active === false) continue;
       if (type !== "pvz" && type !== "postamat") continue;
       const name = text(item, ["name", "delivery_point_number"]) || address;
       const coordinates = item.coordinates && typeof item.coordinates === "object" && !Array.isArray(item.coordinates)
         ? item.coordinates as Record<string, unknown>
-        : item;
+        : {};
       unique.set(id, {
         id, name, address,
         type: type === "postamat" ? "ozon_postamat" : "ozon_pvz",
@@ -150,11 +178,15 @@ async function loadOzonDeliveryPoints() {
         longitude: coordinate(coordinates.longitude ?? coordinates.lon ?? coordinates.lng, -180, 180),
       });
     }
-    const next = items.map((item) => text(item, ["cursor", "next_cursor"])).find(Boolean) ?? "";
-    if (!next || next === cursor) break;
-    cursor = next;
   }
-  const points = [...unique.values()];
+  return [...unique.values()];
+}
+
+async function loadOzonDeliveryPoints() {
+  if (pointsCache && pointsCache.expiresAt > Date.now()) return pointsCache.points;
+  const ids = await fetchOzonDeliveryPointIds();
+  if (!ids.length) return [];
+  const points = await fetchOzonDeliveryPointDetails(ids);
   if (points.length) pointsCache = { points, expiresAt: Date.now() + POINTS_CACHE_TTL_MS };
   return points;
 }
