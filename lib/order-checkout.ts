@@ -35,6 +35,16 @@ export function ensureOrderCheckoutSchema() {
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS yandex_delivery_status VARCHAR(40);
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS yandex_delivery_error TEXT;
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS yandex_delivery_created_at TIMESTAMPTZ;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_price INTEGER;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_insurance_price INTEGER;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_days INTEGER;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_cutoff_at TIMESTAMPTZ;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_idempotency_key UUID;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_order_number VARCHAR(100);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_posting_number VARCHAR(100);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_status VARCHAR(40);
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_error TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_created_at TIMESTAMPTZ;
     `).then(() => undefined).catch((error) => {
       schemaReady = null;
       throw error;
@@ -62,6 +72,11 @@ export type GuestOrder = {
   payment_status: string | null;
   payment_amount: number | null;
   package_weight_grams: number | null;
+  ozon_delivery_price: number | null;
+  ozon_insurance_price: number | null;
+  ozon_delivery_days: number | null;
+  ozon_order_number: string | null;
+  ozon_delivery_status: string | null;
 };
 
 export async function getGuestOrder(id: string, token: string | undefined) {
@@ -71,7 +86,9 @@ export async function getGuestOrder(id: string, token: string | undefined) {
     SELECT id, order_number, customer_name, customer_phone, customer_email, customer_comment,
            total_price, print_price, status, fulfillment_method, payment_method,
            pickup_point_id, pickup_point_address, pickup_point_type, delivery_price,
-           payment_status, payment_amount, package_weight_grams
+           payment_status, payment_amount, package_weight_grams,
+           ozon_delivery_price, ozon_insurance_price, ozon_delivery_days,
+           ozon_order_number, ozon_delivery_status
     FROM orders WHERE id = $1 AND guest_token_hash = $2
   `, [id, hashGuestToken(token)]);
   return result.rows[0] ?? null;

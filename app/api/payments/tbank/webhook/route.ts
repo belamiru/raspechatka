@@ -4,6 +4,7 @@ import { ensureOrderCheckoutSchema } from "@/lib/order-checkout";
 import { getTbankPaymentState, getTbankTerminalKey, isValidTbankToken } from "@/lib/tbank";
 import { getRequestId, logAppError } from "@/lib/security";
 import { createYandexDeliveryForPaidOrder } from "@/lib/yandex-order-sync";
+import { createOzonDeliveryForPaidOrder } from "@/lib/ozon-order";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,7 +56,16 @@ export async function POST(request: Request) {
         updated_at = NOW()
       WHERE id = $4 AND payment_id = $5
     `, [state.Status || "UNKNOWN", confirmed, cancelled, order.id, paymentId]);
-    if (confirmed) await createYandexDeliveryForPaidOrder(order.id);
+    if (confirmed) {
+      // Delivery creation must never turn a confirmed payment into a failed webhook:
+      // T-Bank would retry and the error is already persisted on the order row.
+      await createYandexDeliveryForPaidOrder(order.id).catch(async (cause) => {
+        await logAppError({ request, requestId, scope: "yandex-delivery-after-payment", error: cause });
+      });
+      await createOzonDeliveryForPaidOrder(order.id).catch(async (cause) => {
+        await logAppError({ request, requestId, scope: "ozon-delivery-after-payment", error: cause });
+      });
+    }
     // T-Bank treats only a 200 response with the exact text OK as delivered.
     return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   } catch (error) {

@@ -24,7 +24,7 @@ function receiptEmail(value: string | null) {
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
-function buildReceipt(email: string | null, printAmountKopecks: number, deliveryAmountKopecks: number, orderNumber: string) {
+function buildReceipt(email: string | null, printAmountKopecks: number, deliveryAmountKopecks: number, orderNumber: string, deliveryName: string) {
   const taxation = process.env.TBANK_TAXATION?.trim();
   const tax = process.env.TBANK_RECEIPT_TAX?.trim() || "none";
   const normalizedEmail = receiptEmail(email);
@@ -46,7 +46,7 @@ function buildReceipt(email: string | null, printAmountKopecks: number, delivery
         Tax: tax,
       },
       ...(deliveryAmountKopecks > 0 ? [{
-        Name: "Доставка в пункт выдачи Яндекс Доставки",
+        Name: deliveryName.slice(0, 128),
         Price: deliveryAmountKopecks,
         Quantity: 1,
         Amount: deliveryAmountKopecks,
@@ -70,7 +70,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const token = (await cookies()).get(ORDER_GUEST_COOKIE)?.value;
     const order = await getGuestOrder(id, token);
     if (!order || !token) return NextResponse.json({ error: "Заказ не найден." }, { status: 404 });
-    if (order.fulfillment_method !== "pickup" && order.fulfillment_method !== "yandex_pickup_point") {
+    if (!["pickup", "yandex_pickup_point", "ozon_pickup_point"].includes(order.fulfillment_method)) {
       return NextResponse.json({ error: "Этот способ получения недоступен для онлайн-оплаты." }, { status: 409 });
     }
     if (order.status === "paid") return NextResponse.json({ error: "Этот заказ уже оплачен." }, { status: 409 });
@@ -115,7 +115,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       notificationUrl: `${baseUrl}/api/payments/tbank/webhook`,
       successUrl: `${baseUrl}/orders/${order.id}/checkout?payment=success`,
       failUrl: `${baseUrl}/orders/${order.id}/checkout?payment=fail`,
-      receipt: buildReceipt(order.customer_email, order.print_price * 100, (order.delivery_price ?? 0) * 100, order.order_number),
+      receipt: buildReceipt(order.customer_email, order.print_price * 100, (order.delivery_price ?? 0) * 100, order.order_number,
+        order.fulfillment_method === "ozon_pickup_point"
+          ? "Доставка в пункт выдачи Ozon"
+          : "Доставка в пункт выдачи Яндекс Доставки"),
     });
     if (!response.Success || !response.PaymentId || !response.PaymentURL) {
       throw new Error(response.Message || response.Details || "Т‑Банк не создал платёж.");

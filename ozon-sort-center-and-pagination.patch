@@ -1,0 +1,17 @@
+--- a/lib/ozon-shipment-method.ts
++++ b/lib/ozon-shipment-method.ts
+@@ -97,11 +97,11 @@
+   // pagination is mandatory for both endpoints. shipment_method_id is optional
+   // for return-point search, so it must not be sent before a method exists.
+   const filters = kind === "dropoff"
+-    ? { is_bulky: false, types: ["pvz"], address_search: "Воронеж" }
+-    : { types: ["pvz"] };
++    ? { is_bulky: false, types: ["sort_center"], address_search: "Воронеж" }
++    : { types: ["sort_center"] };
+   const response = await postOzonDeliveryApi(path, {
+     filters,
+-    pagination: { cursor: "", limit: 100 },
++    pagination: { limit: 100 },
+   });
+   return pointsFromResponse(response);
+ }

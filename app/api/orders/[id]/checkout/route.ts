@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { getGuestOrder, hashGuestToken, ORDER_GUEST_COOKIE } from "@/lib/order-checkout";
 import { checkRateLimit, getRequestId, logAppError } from "@/lib/security";
 import { calculateYandexPickupDelivery } from "@/lib/yandex-delivery";
+import { quoteOzonPickupDelivery } from "@/lib/ozon-order";
 
 export const runtime = "nodejs";
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -43,6 +44,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     let pickupPointAddress: string | null = null;
     let pickupPointType: string | null = null;
     let deliveryPrice: number | null = null;
+    let ozonDeliveryPrice: number | null = null;
+    let ozonInsurancePrice: number | null = null;
+    let ozonDeliveryDays: number | null = null;
+    let ozonCutoffAt: string | null = null;
     if (fulfillmentMethod === "pickup") {
       if (paymentMethod !== "online" && paymentMethod !== "on_receipt") {
         return NextResponse.json({ error: "Выберите способ оплаты." }, { status: 400 });
@@ -57,6 +62,18 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       pickupPointType = typeof point.type === "string" ? point.type.trim() : "";
       if (!pickupPointId || pickupPointId.length > 120 || !pickupPointAddress || pickupPointAddress.length > 500 || !["pickup_point", "terminal", "unknown"].includes(pickupPointType)) {
         return NextResponse.json({ error: "Не удалось прочитать данные выбранного пункта. Выберите его на карте ещё раз." }, { status: 400 });
+      }
+    } else if (fulfillmentMethod === "ozon_pickup_point") {
+      if (paymentMethod !== "online" || !pickupPoint || typeof pickupPoint !== "object" || Array.isArray(pickupPoint)) {
+        return NextResponse.json({ error: "Доставка в пункт выдачи Ozon доступна только с онлайн-оплатой. Выберите пункт выдачи." }, { status: 400 });
+      }
+      const point = pickupPoint as Record<string, unknown>;
+      pickupPointId = typeof point.id === "string" ? point.id.trim() : "";
+      pickupPointAddress = typeof point.address === "string" ? point.address.trim() : "";
+      pickupPointType = typeof point.type === "string" ? point.type.trim() : "";
+      if (!/^\d+$/.test(pickupPointId) || !pickupPointAddress || pickupPointAddress.length > 500
+          || !["ozon_pvz", "ozon_postamat"].includes(pickupPointType)) {
+        return NextResponse.json({ error: "Не удалось прочитать данные выбранного пункта Ozon. Выберите его ещё раз." }, { status: 400 });
       }
     } else {
       return NextResponse.json({ error: "Выберите способ получения." }, { status: 400 });
@@ -80,19 +97,41 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       });
       deliveryPrice = quote.priceRubles;
     }
+    if (fulfillmentMethod === "ozon_pickup_point") {
+      // Price is recalculated on the server right before the order is fixed:
+      // the amount sent by the browser is never used for the payment.
+      const quote = await quoteOzonPickupDelivery({
+        orderId: order.id,
+        pointId: pickupPointId!,
+        phone,
+        printPriceRubles: Number(orderForPricing.print_price),
+        parcel: {
+          weightGrams: Number(orderForPricing.package_weight_grams), widthMm: Number(orderForPricing.package_width_mm),
+          lengthMm: Number(orderForPricing.package_length_mm), heightMm: Number(orderForPricing.package_height_mm),
+        },
+      });
+      ozonDeliveryPrice = quote.deliveryPriceRubles;
+      ozonInsurancePrice = quote.insurancePriceRubles;
+      ozonDeliveryDays = quote.deliveryDays;
+      ozonCutoffAt = quote.cutoffAt;
+      deliveryPrice = quote.priceRubles;
+    }
     // The conditional update also makes retries and concurrent submissions harmless.
     await db.query(`
       UPDATE orders SET customer_name = $1, customer_phone = $2, customer_email = $3, customer_comment = $4,
         fulfillment_method = $5, payment_method = $6,
         pickup_point_id = $7, pickup_point_address = $8, pickup_point_type = $9,
         delivery_price = $10,
+        ozon_delivery_price = $14, ozon_insurance_price = $15,
+        ozon_delivery_days = $16, ozon_cutoff_at = $17,
         print_price = COALESCE(print_price, total_price),
         total_price = COALESCE(print_price, total_price) + COALESCE($10, 0),
         status = CASE WHEN $13 = 'on_receipt' THEN 'new' ELSE 'awaiting_payment' END,
         updated_at = NOW()
       WHERE id = $11 AND guest_token_hash = $12 AND status = 'awaiting_checkout'
     `, [name, phone, email, comment || null, fulfillmentMethod, paymentMethod,
-      pickupPointId, pickupPointAddress, pickupPointType, deliveryPrice, id, hashGuestToken(token), paymentMethod]);
+      pickupPointId, pickupPointAddress, pickupPointType, deliveryPrice, id, hashGuestToken(token), paymentMethod,
+      ozonDeliveryPrice, ozonInsurancePrice, ozonDeliveryDays, ozonCutoffAt]);
     const saved = await getGuestOrder(id, token);
     if (!saved || saved.status === "cancelled") {
       return NextResponse.json({ error: "Заказ недоступен для оформления." }, { status: 409 });

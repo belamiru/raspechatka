@@ -1,0 +1,891 @@
+diff --git a/app/api/orders/[id]/checkout/route.ts b/app/api/orders/[id]/checkout/route.ts
+index 9a02776..dc97b4a 100644
+--- a/app/api/orders/[id]/checkout/route.ts
++++ b/app/api/orders/[id]/checkout/route.ts
+@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
+ import { getGuestOrder, hashGuestToken, ORDER_GUEST_COOKIE } from "@/lib/order-checkout";
+ import { checkRateLimit, getRequestId, logAppError } from "@/lib/security";
+ import { calculateYandexPickupDelivery } from "@/lib/yandex-delivery";
++import { quoteOzonPickupDelivery } from "@/lib/ozon-order";
+ 
+ export const runtime = "nodejs";
+ export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+@@ -43,6 +44,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
+     let pickupPointAddress: string | null = null;
+     let pickupPointType: string | null = null;
+     let deliveryPrice: number | null = null;
++    let ozonDeliveryPrice: number | null = null;
++    let ozonInsurancePrice: number | null = null;
++    let ozonDeliveryDays: number | null = null;
++    let ozonCutoffAt: string | null = null;
+     if (fulfillmentMethod === "pickup") {
+       if (paymentMethod !== "online" && paymentMethod !== "on_receipt") {
+         return NextResponse.json({ error: "Выберите способ оплаты." }, { status: 400 });
+@@ -58,6 +63,18 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
+       if (!pickupPointId || pickupPointId.length > 120 || !pickupPointAddress || pickupPointAddress.length > 500 || !["pickup_point", "terminal", "unknown"].includes(pickupPointType)) {
+         return NextResponse.json({ error: "Не удалось прочитать данные выбранного пункта. Выберите его на карте ещё раз." }, { status: 400 });
+       }
++    } else if (fulfillmentMethod === "ozon_pickup_point") {
++      if (paymentMethod !== "online" || !pickupPoint || typeof pickupPoint !== "object" || Array.isArray(pickupPoint)) {
++        return NextResponse.json({ error: "Доставка в пункт выдачи Ozon доступна только с онлайн-оплатой. Выберите пункт выдачи." }, { status: 400 });
++      }
++      const point = pickupPoint as Record<string, unknown>;
++      pickupPointId = typeof point.id === "string" ? point.id.trim() : "";
++      pickupPointAddress = typeof point.address === "string" ? point.address.trim() : "";
++      pickupPointType = typeof point.type === "string" ? point.type.trim() : "";
++      if (!/^\d+$/.test(pickupPointId) || !pickupPointAddress || pickupPointAddress.length > 500
++          || !["ozon_pvz", "ozon_postamat"].includes(pickupPointType)) {
++        return NextResponse.json({ error: "Не удалось прочитать данные выбранного пункта Ozon. Выберите его ещё раз." }, { status: 400 });
++      }
+     } else {
+       return NextResponse.json({ error: "Выберите способ получения." }, { status: 400 });
+     }
+@@ -80,19 +97,41 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
+       });
+       deliveryPrice = quote.priceRubles;
+     }
++    if (fulfillmentMethod === "ozon_pickup_point") {
++      // Price is recalculated on the server right before the order is fixed:
++      // the amount sent by the browser is never used for the payment.
++      const quote = await quoteOzonPickupDelivery({
++        orderId: order.id,
++        pointId: pickupPointId!,
++        phone,
++        printPriceRubles: Number(orderForPricing.print_price),
++        parcel: {
++          weightGrams: Number(orderForPricing.package_weight_grams), widthMm: Number(orderForPricing.package_width_mm),
++          lengthMm: Number(orderForPricing.package_length_mm), heightMm: Number(orderForPricing.package_height_mm),
++        },
++      });
++      ozonDeliveryPrice = quote.deliveryPriceRubles;
++      ozonInsurancePrice = quote.insurancePriceRubles;
++      ozonDeliveryDays = quote.deliveryDays;
++      ozonCutoffAt = quote.cutoffAt;
++      deliveryPrice = quote.priceRubles;
++    }
+     // The conditional update also makes retries and concurrent submissions harmless.
+     await db.query(`
+       UPDATE orders SET customer_name = $1, customer_phone = $2, customer_email = $3, customer_comment = $4,
+         fulfillment_method = $5, payment_method = $6,
+         pickup_point_id = $7, pickup_point_address = $8, pickup_point_type = $9,
+         delivery_price = $10,
++        ozon_delivery_price = $14, ozon_insurance_price = $15,
++        ozon_delivery_days = $16, ozon_cutoff_at = $17,
+         print_price = COALESCE(print_price, total_price),
+         total_price = COALESCE(print_price, total_price) + COALESCE($10, 0),
+         status = CASE WHEN $13 = 'on_receipt' THEN 'new' ELSE 'awaiting_payment' END,
+         updated_at = NOW()
+       WHERE id = $11 AND guest_token_hash = $12 AND status = 'awaiting_checkout'
+     `, [name, phone, email, comment || null, fulfillmentMethod, paymentMethod,
+-      pickupPointId, pickupPointAddress, pickupPointType, deliveryPrice, id, hashGuestToken(token), paymentMethod]);
++      pickupPointId, pickupPointAddress, pickupPointType, deliveryPrice, id, hashGuestToken(token), paymentMethod,
++      ozonDeliveryPrice, ozonInsurancePrice, ozonDeliveryDays, ozonCutoffAt]);
+     const saved = await getGuestOrder(id, token);
+     if (!saved || saved.status === "cancelled") {
+       return NextResponse.json({ error: "Заказ недоступен для оформления." }, { status: 409 });
+diff --git a/app/api/orders/[id]/delivery/ozon-quote/route.ts b/app/api/orders/[id]/delivery/ozon-quote/route.ts
+new file mode 100644
+index 0000000..515ea2a
+--- /dev/null
++++ b/app/api/orders/[id]/delivery/ozon-quote/route.ts
+@@ -0,0 +1,50 @@
++import { cookies } from "next/headers";
++import { NextResponse } from "next/server";
++import { getDb } from "@/lib/db";
++import { ensureOrderCheckoutSchema, hashGuestToken, ORDER_GUEST_COOKIE } from "@/lib/order-checkout";
++import { quoteOzonPickupDelivery } from "@/lib/ozon-order";
++import { checkRateLimit, getRequestId, logAppError } from "@/lib/security";
++
++export const runtime = "nodejs";
++export const dynamic = "force-dynamic";
++
++export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
++  const requestId = getRequestId();
++  if (request.headers.get("sec-fetch-site") === "cross-site") return NextResponse.json({ error: "Нет доступа." }, { status: 403 });
++  try {
++    const limit = await checkRateLimit(request, "ozon-delivery-quote", { shortWindowMinutes: 1, shortWindowLimit: 10, dailyLimit: 100 });
++    if (!limit.allowed) return NextResponse.json({ error: "Попробуйте через минуту." }, { status: 429 });
++    const { id } = await context.params;
++    const token = (await cookies()).get(ORDER_GUEST_COOKIE)?.value;
++    const data: unknown = await request.json().catch(() => null);
++    const body = data && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : null;
++    const pointId = typeof body?.pickupPointId === "string" ? body.pickupPointId.trim() : "";
++    const phone = typeof body?.customerPhone === "string" ? body.customerPhone.trim() : "";
++    if (!token || !/^\d+$/.test(pointId)) return NextResponse.json({ error: "Выберите пункт выдачи Ozon." }, { status: 400 });
++    if (!/^\d{10,15}$/.test(phone.replace(/\D/g, ""))) {
++      return NextResponse.json({ error: "Укажите телефон, зарегистрированный на Ozon." }, { status: 400 });
++    }
++    await ensureOrderCheckoutSchema();
++    const order = await getDb().query<{
++      print_price: number; package_weight_grams: number; package_width_mm: number;
++      package_length_mm: number; package_height_mm: number;
++    }>(`
++      SELECT COALESCE(print_price, total_price) AS print_price,
++             package_weight_grams, package_width_mm, package_length_mm, package_height_mm
++      FROM orders WHERE id = $1 AND guest_token_hash = $2 AND status = 'awaiting_checkout'
++    `, [id, hashGuestToken(token)]);
++    const saved = order.rows[0];
++    if (!saved) return NextResponse.json({ error: "Заказ недоступен для расчёта." }, { status: 409 });
++    const quote = await quoteOzonPickupDelivery({
++      orderId: id, pointId, phone, printPriceRubles: Number(saved.print_price),
++      parcel: {
++        weightGrams: Number(saved.package_weight_grams), widthMm: Number(saved.package_width_mm),
++        lengthMm: Number(saved.package_length_mm), heightMm: Number(saved.package_height_mm),
++      },
++    });
++    return NextResponse.json(quote, { headers: { "Cache-Control": "private, no-store" } });
++  } catch (error) {
++    await logAppError({ request, requestId, scope: "ozon_delivery_quote", error });
++    return NextResponse.json({ error: error instanceof Error ? error.message : "Не удалось рассчитать доставку Ozon." }, { status: 502 });
++  }
++}
+diff --git a/app/api/orders/[id]/payments/tbank/init/route.ts b/app/api/orders/[id]/payments/tbank/init/route.ts
+index d230217..6bb4f85 100644
+--- a/app/api/orders/[id]/payments/tbank/init/route.ts
++++ b/app/api/orders/[id]/payments/tbank/init/route.ts
+@@ -24,7 +24,7 @@ function receiptEmail(value: string | null) {
+   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+ }
+ 
+-function buildReceipt(email: string | null, printAmountKopecks: number, deliveryAmountKopecks: number, orderNumber: string) {
++function buildReceipt(email: string | null, printAmountKopecks: number, deliveryAmountKopecks: number, orderNumber: string, deliveryName: string) {
+   const taxation = process.env.TBANK_TAXATION?.trim();
+   const tax = process.env.TBANK_RECEIPT_TAX?.trim() || "none";
+   const normalizedEmail = receiptEmail(email);
+@@ -46,7 +46,7 @@ function buildReceipt(email: string | null, printAmountKopecks: number, delivery
+         Tax: tax,
+       },
+       ...(deliveryAmountKopecks > 0 ? [{
+-        Name: "Доставка в пункт выдачи Яндекс Доставки",
++        Name: deliveryName.slice(0, 128),
+         Price: deliveryAmountKopecks,
+         Quantity: 1,
+         Amount: deliveryAmountKopecks,
+@@ -70,7 +70,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
+     const token = (await cookies()).get(ORDER_GUEST_COOKIE)?.value;
+     const order = await getGuestOrder(id, token);
+     if (!order || !token) return NextResponse.json({ error: "Заказ не найден." }, { status: 404 });
+-    if (order.fulfillment_method !== "pickup" && order.fulfillment_method !== "yandex_pickup_point") {
++    if (!["pickup", "yandex_pickup_point", "ozon_pickup_point"].includes(order.fulfillment_method)) {
+       return NextResponse.json({ error: "Этот способ получения недоступен для онлайн-оплаты." }, { status: 409 });
+     }
+     if (order.status === "paid") return NextResponse.json({ error: "Этот заказ уже оплачен." }, { status: 409 });
+@@ -115,7 +115,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
+       notificationUrl: `${baseUrl}/api/payments/tbank/webhook`,
+       successUrl: `${baseUrl}/orders/${order.id}/checkout?payment=success`,
+       failUrl: `${baseUrl}/orders/${order.id}/checkout?payment=fail`,
+-      receipt: buildReceipt(order.customer_email, order.print_price * 100, (order.delivery_price ?? 0) * 100, order.order_number),
++      receipt: buildReceipt(order.customer_email, order.print_price * 100, (order.delivery_price ?? 0) * 100, order.order_number,
++        order.fulfillment_method === "ozon_pickup_point"
++          ? "Доставка в пункт выдачи Ozon"
++          : "Доставка в пункт выдачи Яндекс Доставки"),
+     });
+     if (!response.Success || !response.PaymentId || !response.PaymentURL) {
+       throw new Error(response.Message || response.Details || "Т‑Банк не создал платёж.");
+diff --git a/app/api/orders/[id]/payments/tbank/status/route.ts b/app/api/orders/[id]/payments/tbank/status/route.ts
+index b888c55..609abc6 100644
+--- a/app/api/orders/[id]/payments/tbank/status/route.ts
++++ b/app/api/orders/[id]/payments/tbank/status/route.ts
+@@ -5,6 +5,7 @@ import { getGuestOrder, hashGuestToken, ORDER_GUEST_COOKIE } from "@/lib/order-c
+ import { checkRateLimit, getRequestId, logAppError } from "@/lib/security";
+ import { getTbankPaymentState, getTbankTerminalKey } from "@/lib/tbank";
+ import { createYandexDeliveryForPaidOrder } from "@/lib/yandex-order-sync";
++import { createOzonDeliveryForPaidOrder } from "@/lib/ozon-order";
+ 
+ export const runtime = "nodejs";
+ export const dynamic = "force-dynamic";
+@@ -59,7 +60,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
+         updated_at = NOW()
+       WHERE id = $4 AND guest_token_hash = $5 AND payment_id = $6`,
+       [state.Status || "UNKNOWN", confirmed, cancelled, id, hashGuestToken(token), saved.payment_id]);
+-    if (confirmed) await createYandexDeliveryForPaidOrder(id);
++    if (confirmed) {
++      await createYandexDeliveryForPaidOrder(id).catch(async (cause) => {
++        await logAppError({ request, requestId, scope: "yandex-delivery-after-payment", error: cause });
++      });
++      await createOzonDeliveryForPaidOrder(id).catch(async (cause) => {
++        await logAppError({ request, requestId, scope: "ozon-delivery-after-payment", error: cause });
++      });
++    }
+     const updated = await getGuestOrder(id, token);
+     return NextResponse.json({ order: updated }, { headers: { "Cache-Control": "private, no-store" } });
+   } catch (error) {
+diff --git a/app/api/ozon-delivery/points/route.ts b/app/api/ozon-delivery/points/route.ts
+new file mode 100644
+index 0000000..7e0eb8a
+--- /dev/null
++++ b/app/api/ozon-delivery/points/route.ts
+@@ -0,0 +1,20 @@
++import { NextResponse } from "next/server";
++import { searchOzonDeliveryPoints } from "@/lib/ozon-order";
++import { checkRateLimit, getRequestId, logAppError } from "@/lib/security";
++
++export const runtime = "nodejs";
++export const dynamic = "force-dynamic";
++
++export async function GET(request: Request) {
++  const requestId = getRequestId();
++  try {
++    const limit = await checkRateLimit(request, "ozon-delivery-points", { shortWindowMinutes: 1, shortWindowLimit: 30, dailyLimit: 600 });
++    if (!limit.allowed) return NextResponse.json({ error: "Попробуйте через минуту." }, { status: 429 });
++    const query = new URL(request.url).searchParams.get("query")?.slice(0, 120) ?? "";
++    const points = await searchOzonDeliveryPoints(query);
++    return NextResponse.json({ points }, { headers: { "Cache-Control": "private, no-store" } });
++  } catch (error) {
++    await logAppError({ request, requestId, scope: "ozon_delivery_points", error });
++    return NextResponse.json({ error: error instanceof Error ? error.message : "Не удалось загрузить пункты выдачи Ozon." }, { status: 502 });
++  }
++}
+diff --git a/app/api/payments/tbank/webhook/route.ts b/app/api/payments/tbank/webhook/route.ts
+index 159a496..6e3cb08 100644
+--- a/app/api/payments/tbank/webhook/route.ts
++++ b/app/api/payments/tbank/webhook/route.ts
+@@ -4,6 +4,7 @@ import { ensureOrderCheckoutSchema } from "@/lib/order-checkout";
+ import { getTbankPaymentState, getTbankTerminalKey, isValidTbankToken } from "@/lib/tbank";
+ import { getRequestId, logAppError } from "@/lib/security";
+ import { createYandexDeliveryForPaidOrder } from "@/lib/yandex-order-sync";
++import { createOzonDeliveryForPaidOrder } from "@/lib/ozon-order";
+ 
+ export const runtime = "nodejs";
+ export const dynamic = "force-dynamic";
+@@ -55,7 +56,16 @@ export async function POST(request: Request) {
+         updated_at = NOW()
+       WHERE id = $4 AND payment_id = $5
+     `, [state.Status || "UNKNOWN", confirmed, cancelled, order.id, paymentId]);
+-    if (confirmed) await createYandexDeliveryForPaidOrder(order.id);
++    if (confirmed) {
++      // Delivery creation must never turn a confirmed payment into a failed webhook:
++      // T-Bank would retry and the error is already persisted on the order row.
++      await createYandexDeliveryForPaidOrder(order.id).catch(async (cause) => {
++        await logAppError({ request, requestId, scope: "yandex-delivery-after-payment", error: cause });
++      });
++      await createOzonDeliveryForPaidOrder(order.id).catch(async (cause) => {
++        await logAppError({ request, requestId, scope: "ozon-delivery-after-payment", error: cause });
++      });
++    }
+     // T-Bank treats only a 200 response with the exact text OK as delivered.
+     return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+   } catch (error) {
+diff --git a/components/order-checkout.tsx b/components/order-checkout.tsx
+index c657809..3880542 100644
+--- a/components/order-checkout.tsx
++++ b/components/order-checkout.tsx
+@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
+ import type { GuestOrder } from "@/lib/order-checkout";
+ import { reachMetrikaGoal } from "@/lib/metrika";
+ import { YandexPickupWidget, type YandexPickupPoint } from "@/components/yandex-pickup-widget";
++import { OzonPickupPicker, type OzonPickupPoint } from "@/components/ozon-pickup-picker";
+ 
+ const fieldClass = "mt-2 w-full rounded-xl border border-slate-300 px-4 py-3";
+ const statusLabels: Record<string, string> = {
+@@ -17,15 +18,19 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
+   const [phone, setPhone] = useState(order.customer_phone);
+   const [email, setEmail] = useState(order.customer_email ?? "");
+   const [comment, setComment] = useState(order.customer_comment ?? "");
+-  const [method, setMethod] = useState<"pickup" | "yandex_pickup_point">("pickup");
++  const [method, setMethod] = useState<"pickup" | "yandex_pickup_point" | "ozon_pickup_point">("pickup");
+   const [paymentMethod, setPaymentMethod] = useState<"online" | "on_receipt">("online");
+   const [point, setPoint] = useState<YandexPickupPoint | null>(null);
+   const [deliveryQuote, setDeliveryQuote] = useState<{ priceRubles: number; deliveryDays: number | null } | null>(null);
++  const [ozonPoint, setOzonPoint] = useState<OzonPickupPoint | null>(null);
++  const [ozonQuote, setOzonQuote] = useState<{ phone: string; priceRubles: number; deliveryPriceRubles: number; insurancePriceRubles: number; deliveryDays: number | null } | null>(null);
++  const [quotingOzon, setQuotingOzon] = useState(false);
+   const [quotingDelivery, setQuotingDelivery] = useState(false);
+   const [busy, setBusy] = useState(false);
+   const [checkingPayment, setCheckingPayment] = useState(false);
+   const [error, setError] = useState("");
+   const selectPoint = useCallback((next: YandexPickupPoint | null) => { setPoint(next); setDeliveryQuote(null); }, []);
++  const selectOzonPoint = useCallback((next: OzonPickupPoint | null) => { setOzonPoint(next); setOzonQuote(null); }, []);
+ 
+   useEffect(() => {
+     if (method !== "yandex_pickup_point" || !point) return;
+@@ -38,6 +43,31 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
+     return () => { active = false; };
+   }, [method, order.id, point]);
+ 
++  useEffect(() => {
++    if (method !== "ozon_pickup_point" || !ozonPoint) return;
++    const digits = phone.replace(/\D/g, "");
++    if (digits.length < 10) return;
++    let active = true;
++    const timer = setTimeout(() => {
++      setQuotingOzon(true); setError("");
++      void fetch(`/api/orders/${order.id}/delivery/ozon-quote`, {
++        method: "POST", headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ pickupPointId: ozonPoint.id, customerPhone: phone }),
++      })
++        .then(async (response) => {
++          const result = await response.json();
++          if (!response.ok) throw new Error(result.error ?? "Не удалось рассчитать доставку Ozon.");
++          if (active) setOzonQuote({ ...result, phone });
++        })
++        .catch((cause) => {
++          if (!active) return;
++          setError(cause instanceof Error ? cause.message : "Не удалось рассчитать доставку Ozon.");
++        })
++        .finally(() => { if (active) setQuotingOzon(false); });
++    }, 600);
++    return () => { active = false; clearTimeout(timer); };
++  }, [method, order.id, ozonPoint, phone]);
++
+   const reconcilePayment = useCallback(async (showError = true) => {
+     if (checkingPayment) return;
+     setCheckingPayment(true);
+@@ -94,6 +124,14 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
+       setError("Дождитесь расчёта стоимости доставки.");
+       return;
+     }
++    if (method === "ozon_pickup_point" && !ozonPoint) {
++      setError("Выберите пункт выдачи Ozon.");
++      return;
++    }
++    if (method === "ozon_pickup_point" && !activeOzonQuote) {
++      setError("Дождитесь расчёта стоимости доставки Ozon.");
++      return;
++    }
+     setBusy(true);
+     setError("");
+     try {
+@@ -102,7 +140,8 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({
+           customerName: name, customerPhone: phone, customerEmail: email, customerComment: comment,
+-          fulfillmentMethod: method, paymentMethod, pickupPoint: point,
++          fulfillmentMethod: method, paymentMethod,
++          pickupPoint: method === "ozon_pickup_point" ? ozonPoint : point,
+         }),
+       });
+       const result = await response.json();
+@@ -123,10 +162,12 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
+     }
+   }
+ 
++  const activeOzonQuote = ozonQuote && ozonQuote.phone === phone ? ozonQuote : null;
+   const pending = order.status === "awaiting_checkout";
+   const awaitingPayment = order.status === "awaiting_payment";
+   const retryablePayment = ["REJECTED", "CANCELED", "CANCELLED", "DEADLINE_EXPIRED"].includes(order.payment_status ?? "");
+-  const deliveryLabel = order.fulfillment_method === "yandex_pickup_point" ? "Доставка в ПВЗ Яндекс Доставки" : "Самовывоз";
++  const deliveryLabel = order.fulfillment_method === "yandex_pickup_point" ? "Доставка в ПВЗ Яндекс Доставки"
++    : order.fulfillment_method === "ozon_pickup_point" ? "Доставка в ПВЗ Ozon" : "Самовывоз";
+   return <main className="min-h-screen bg-slate-50 px-5 py-10 text-slate-900">
+     <div className="mx-auto max-w-2xl rounded-2xl bg-white p-6 shadow-sm sm:p-8">
+       <a href="/" className="font-black text-blue-700">РАСПЕЧАТКА</a>
+@@ -144,13 +185,16 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
+         <fieldset className="rounded-xl border border-slate-200 p-4"><legend className="font-bold">Получение</legend><div className="mt-3 space-y-3">
+           <label className="flex cursor-pointer gap-2"><input type="radio" name="fulfillment" checked={method === "pickup"} onChange={() => { setMethod("pickup"); setPoint(null); setDeliveryQuote(null); }} />Самовывоз — бесплатно</label>
+           <label className="flex cursor-pointer gap-2"><input type="radio" name="fulfillment" checked={method === "yandex_pickup_point"} onChange={() => { setMethod("yandex_pickup_point"); setPaymentMethod("online"); }} />Доставка в ПВЗ Яндекс Доставки — только онлайн-оплата</label>
+-        </div>{method === "yandex_pickup_point" && <><YandexPickupWidget weightGrams={Math.max(1, order.package_weight_grams ?? 1)} onSelect={selectPoint} />{point && <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm"><p className="font-semibold">Пункт выдачи: {point.address}</p>{quotingDelivery && <p className="mt-1">Рассчитываем стоимость доставки…</p>}{deliveryQuote && <><p className="mt-1">Доставка: {deliveryQuote.priceRubles.toLocaleString("ru-RU")} ₽</p>{deliveryQuote.deliveryDays !== null && <p>Ориентировочный срок: до {deliveryQuote.deliveryDays} дн.</p>}<p className="mt-1 font-bold">К оплате: {(order.print_price + deliveryQuote.priceRubles).toLocaleString("ru-RU")} ₽</p></>}</div>}</>}</fieldset>
++          <label className="flex cursor-pointer gap-2"><input type="radio" name="fulfillment" checked={method === "ozon_pickup_point"} onChange={() => { setMethod("ozon_pickup_point"); setPaymentMethod("online"); setPoint(null); setDeliveryQuote(null); }} />Доставка в ПВЗ Ozon — только онлайн-оплата</label>
++        </div>{method === "ozon_pickup_point" && <><OzonPickupPicker selected={ozonPoint} onSelect={selectOzonPoint} />{ozonPoint && <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm"><p className="font-semibold">Пункт Ozon: {ozonPoint.address}</p>{quotingOzon && <p className="mt-1">Рассчитываем стоимость доставки…</p>}{activeOzonQuote && <><p className="mt-1">Доставка: {activeOzonQuote.deliveryPriceRubles.toLocaleString("ru-RU")} ₽</p>{activeOzonQuote.insurancePriceRubles > 0 && <p>Страховка: {activeOzonQuote.insurancePriceRubles.toLocaleString("ru-RU")} ₽</p>}{activeOzonQuote.deliveryDays !== null && <p>Ориентировочный срок: до {activeOzonQuote.deliveryDays} дн.</p>}<p className="mt-1 font-bold">К оплате: {(order.print_price + activeOzonQuote.priceRubles).toLocaleString("ru-RU")} ₽</p></>}{!activeOzonQuote && !quotingOzon && <p className="mt-1 text-slate-600">Укажите телефон, зарегистрированный на Ozon, — он нужен для расчёта.</p>}</div>}</>}{method === "yandex_pickup_point" && <><YandexPickupWidget weightGrams={Math.max(1, order.package_weight_grams ?? 1)} onSelect={selectPoint} />{point && <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm"><p className="font-semibold">Пункт выдачи: {point.address}</p>{quotingDelivery && <p className="mt-1">Рассчитываем стоимость доставки…</p>}{deliveryQuote && <><p className="mt-1">Доставка: {deliveryQuote.priceRubles.toLocaleString("ru-RU")} ₽</p>{deliveryQuote.deliveryDays !== null && <p>Ориентировочный срок: до {deliveryQuote.deliveryDays} дн.</p>}<p className="mt-1 font-bold">К оплате: {(order.print_price + deliveryQuote.priceRubles).toLocaleString("ru-RU")} ₽</p></>}</div>}</>}</fieldset>
+         {method === "pickup" ? <fieldset className="rounded-xl border border-slate-200 p-4"><legend className="font-bold">Оплата</legend><div className="mt-3 space-y-3"><label className="flex cursor-pointer gap-2"><input type="radio" name="payment" checked={paymentMethod === "online"} onChange={() => setPaymentMethod("online")} />Оплатить онлайн через Т‑Банк</label><label className="flex cursor-pointer gap-2"><input type="radio" name="payment" checked={paymentMethod === "on_receipt"} onChange={() => setPaymentMethod("on_receipt")} />Оплатить при получении</label></div></fieldset> : <p className="text-sm text-slate-600">Оплата: онлайн через Т‑Банк. В сумму войдут печать и доставка.</p>}
+         {error && <p role="alert" className="text-red-700">{error}</p>}
+-        <button disabled={busy || (method === "yandex_pickup_point" && (!point || !deliveryQuote || quotingDelivery))} className="w-full rounded-xl bg-blue-700 px-4 py-3 font-bold text-white disabled:opacity-50">{busy ? (paymentMethod === "online" ? "Переходим к оплате…" : "Оформляем заказ…") : paymentMethod === "online" ? "Перейти к оплате" : "Оформить заказ"}</button>
++        <button disabled={busy || (method === "yandex_pickup_point" && (!point || !deliveryQuote || quotingDelivery)) || (method === "ozon_pickup_point" && (!ozonPoint || !activeOzonQuote || quotingOzon))} className="w-full rounded-xl bg-blue-700 px-4 py-3 font-bold text-white disabled:opacity-50">{busy ? (paymentMethod === "online" ? "Переходим к оплате…" : "Оформляем заказ…") : paymentMethod === "online" ? "Перейти к оплате" : "Оформить заказ"}</button>
+       </form> : <div className="mt-6 space-y-3">
+         <p>{order.customer_name} · {order.customer_phone}</p><p>Получение: {deliveryLabel}.</p>
+-        {order.pickup_point_address && <p>Пункт: {order.pickup_point_address} ({order.pickup_point_type === "terminal" ? "постамат" : "ПВЗ"}).</p>}
++        {order.pickup_point_address && <p>Пункт: {order.pickup_point_address} ({["terminal", "ozon_postamat"].includes(order.pickup_point_type ?? "") ? "постамат" : "ПВЗ"}).</p>}
++        {order.fulfillment_method === "ozon_pickup_point" && order.ozon_delivery_price !== null && <p>Доставка Ozon: {order.ozon_delivery_price.toLocaleString("ru-RU")} ₽{order.ozon_insurance_price ? `, страховка: ${order.ozon_insurance_price.toLocaleString("ru-RU")} ₽` : ""}{order.ozon_delivery_days !== null ? `, срок до ${order.ozon_delivery_days} дн.` : ""}</p>}
++        {order.ozon_order_number && <p>Заказ в Ozon: {order.ozon_order_number}</p>}
+         <p>Оплата: онлайн через Т‑Банк.</p>{order.fulfillment_method === "yandex_pickup_point" && <p>Стоимость доставки уточняется.</p>}
+         {order.customer_comment && <p className="whitespace-pre-wrap">{order.customer_comment}</p>}
+         {awaitingPayment && (retryablePayment ? <div className="space-y-3 rounded-xl bg-red-50 p-4 text-red-900"><p className="font-semibold">Оплата не прошла.</p><p className="text-sm">Банк отклонил платёж. Средства по этой попытке не списаны. Можно безопасно начать новую попытку оплаты.</p><button type="button" onClick={() => void retryPayment()} disabled={busy} className="rounded-xl bg-blue-700 px-4 py-2 font-semibold text-white disabled:opacity-50">{busy ? "Переходим к оплате…" : "Попробовать оплатить снова"}</button></div> : <div className="space-y-3"><p>Проверяем подтверждение оплаты от Т‑Банка.</p><button type="button" onClick={() => void reconcilePayment()} disabled={checkingPayment} className="rounded-xl border border-blue-700 px-4 py-2 font-semibold text-blue-700 disabled:opacity-50">{checkingPayment ? "Проверяем…" : "Проверить оплату"}</button></div>)}
+diff --git a/components/ozon-pickup-picker.tsx b/components/ozon-pickup-picker.tsx
+new file mode 100644
+index 0000000..84c5f33
+--- /dev/null
++++ b/components/ozon-pickup-picker.tsx
+@@ -0,0 +1,70 @@
++"use client";
++
++import { useCallback, useEffect, useRef, useState } from "react";
++
++export type OzonPickupPoint = {
++  id: string;
++  name: string;
++  address: string;
++  type: "ozon_pvz" | "ozon_postamat";
++};
++
++export function OzonPickupPicker({ selected, onSelect }: {
++  selected: OzonPickupPoint | null;
++  onSelect: (point: OzonPickupPoint | null) => void;
++}) {
++  const [query, setQuery] = useState("");
++  const [points, setPoints] = useState<OzonPickupPoint[]>([]);
++  const [loading, setLoading] = useState(false);
++  const [error, setError] = useState("");
++  const latestRequest = useRef(0);
++
++  const load = useCallback((search: string) => {
++    const requestNumber = latestRequest.current + 1;
++    latestRequest.current = requestNumber;
++    setLoading(true);
++    setError("");
++    void fetch(`/api/ozon-delivery/points?query=${encodeURIComponent(search)}`)
++      .then(async (response) => {
++        const result = await response.json();
++        if (!response.ok) throw new Error(result.error ?? "Не удалось загрузить пункты выдачи Ozon.");
++        if (latestRequest.current === requestNumber) setPoints(result.points ?? []);
++      })
++      .catch((cause) => {
++        if (latestRequest.current !== requestNumber) return;
++        setPoints([]);
++        setError(cause instanceof Error ? cause.message : "Не удалось загрузить пункты выдачи Ozon.");
++      })
++      .finally(() => { if (latestRequest.current === requestNumber) setLoading(false); });
++  }, []);
++
++  useEffect(() => {
++    const timer = setTimeout(() => load(query), query ? 400 : 0);
++    return () => clearTimeout(timer);
++  }, [load, query]);
++
++  return <div className="mt-3">
++    <label className="block text-sm font-semibold">Поиск пункта Ozon по адресу или названию
++      <input value={query} maxLength={120} placeholder="Воронеж, Ленина"
++        onChange={(event) => setQuery(event.target.value)}
++        className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3" />
++    </label>
++    {loading && <p className="mt-2 text-sm text-slate-600">Загружаем пункты выдачи…</p>}
++    {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
++    {!loading && !error && points.length === 0 && <p className="mt-2 text-sm text-slate-600">Пункты не найдены. Уточните запрос.</p>}
++    {points.length > 0 && <ul className="mt-3 max-h-72 space-y-2 overflow-y-auto">
++      {points.map((point) => {
++        const active = selected?.id === point.id;
++        return <li key={point.id}>
++          <button type="button" onClick={() => onSelect(active ? null : point)}
++            aria-pressed={active}
++            className={`w-full rounded-xl border px-4 py-3 text-left text-sm ${active ? "border-blue-700 bg-blue-50" : "border-slate-200"}`}>
++            <span className="block font-semibold">{point.name}</span>
++            <span className="block text-slate-600">{point.address}</span>
++            <span className="block text-slate-500">{point.type === "ozon_postamat" ? "Постамат Ozon" : "Пункт выдачи Ozon"}</span>
++          </button>
++        </li>;
++      })}
++    </ul>}
++  </div>;
++}
+diff --git a/lib/order-checkout.ts b/lib/order-checkout.ts
+index 5ba0db5..22736d6 100644
+--- a/lib/order-checkout.ts
++++ b/lib/order-checkout.ts
+@@ -35,6 +35,16 @@ export function ensureOrderCheckoutSchema() {
+       ALTER TABLE orders ADD COLUMN IF NOT EXISTS yandex_delivery_status VARCHAR(40);
+       ALTER TABLE orders ADD COLUMN IF NOT EXISTS yandex_delivery_error TEXT;
+       ALTER TABLE orders ADD COLUMN IF NOT EXISTS yandex_delivery_created_at TIMESTAMPTZ;
++      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_price INTEGER;
++      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_insurance_price INTEGER;
++      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_days INTEGER;
++      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_cutoff_at TIMESTAMPTZ;
++      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_idempotency_key UUID;
++      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_order_number VARCHAR(100);
++      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_posting_number VARCHAR(100);
++      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_status VARCHAR(40);
++      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_error TEXT;
++      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_created_at TIMESTAMPTZ;
+     `).then(() => undefined).catch((error) => {
+       schemaReady = null;
+       throw error;
+@@ -62,6 +72,11 @@ export type GuestOrder = {
+   payment_status: string | null;
+   payment_amount: number | null;
+   package_weight_grams: number | null;
++  ozon_delivery_price: number | null;
++  ozon_insurance_price: number | null;
++  ozon_delivery_days: number | null;
++  ozon_order_number: string | null;
++  ozon_delivery_status: string | null;
+ };
+ 
+ export async function getGuestOrder(id: string, token: string | undefined) {
+@@ -71,7 +86,9 @@ export async function getGuestOrder(id: string, token: string | undefined) {
+     SELECT id, order_number, customer_name, customer_phone, customer_email, customer_comment,
+            total_price, print_price, status, fulfillment_method, payment_method,
+            pickup_point_id, pickup_point_address, pickup_point_type, delivery_price,
+-           payment_status, payment_amount, package_weight_grams
++           payment_status, payment_amount, package_weight_grams,
++           ozon_delivery_price, ozon_insurance_price, ozon_delivery_days,
++           ozon_order_number, ozon_delivery_status
+     FROM orders WHERE id = $1 AND guest_token_hash = $2
+   `, [id, hashGuestToken(token)]);
+   return result.rows[0] ?? null;
+diff --git a/lib/ozon-delivery.ts b/lib/ozon-delivery.ts
+index 3fb146c..ab5b005 100644
+--- a/lib/ozon-delivery.ts
++++ b/lib/ozon-delivery.ts
+@@ -75,7 +75,7 @@ function updateCookies(headers: Headers) {
+ 
+ type OzonTrace = { statuses: number[] };
+ 
+-async function postToOzon(url: string, body: unknown, authorization?: string, trace?: OzonTrace) {
++async function postToOzon(url: string, body: unknown, authorization?: string, trace?: OzonTrace, extraHeaders?: Record<string, string>) {
+   let target = url;
+   const requestBody = JSON.stringify(body);
+   for (let attempt = 0; attempt <= MAX_REDIRECTS; attempt += 1) {
+@@ -84,6 +84,7 @@ async function postToOzon(url: string, body: unknown, authorization?: string, tr
+       "Content-Type": "application/json", Accept: "application/json",
+       ...(authorization ? { Authorization: authorization } : {}),
+       ...(ozonCookies ? { Cookie: ozonCookies } : {}),
++      ...extraHeaders,
+     };
+     const response = await fetch(target, {
+       method: "POST", headers, body: requestBody, cache: "no-store", redirect: "manual",
+@@ -165,13 +166,13 @@ function diagnosticBody(value: unknown, depth = 0): unknown {
+ }
+ 
+ /** Server-only POST wrapper for documented Ozon Delivery API endpoints. */
+-export async function postOzonDeliveryApi(path: string, body: unknown) {
++export async function postOzonDeliveryApi(path: string, body: unknown, extraHeaders?: Record<string, string>) {
+   if (!/^\/v1\/[a-z0-9-]+(?:\/[a-z0-9-]+)*$/.test(path)) {
+     throw new Error("Некорректный путь Ozon Delivery API.");
+   }
+   const accessToken = await getOzonDeliveryAccessToken();
+   const trace: OzonTrace = { statuses: [] };
+-  const response = await postToOzon(`${DELIVERY_API_ORIGIN}${path}`, body, `Bearer ${accessToken}`, trace);
++  const response = await postToOzon(`${DELIVERY_API_ORIGIN}${path}`, body, `Bearer ${accessToken}`, trace, extraHeaders);
+   const text = await response.text();
+   let result: unknown = null;
+   try { result = JSON.parse(text); } catch { /* Non-JSON protection response. */ }
+diff --git a/lib/ozon-order.ts b/lib/ozon-order.ts
+new file mode 100644
+index 0000000..88af87a
+--- /dev/null
++++ b/lib/ozon-order.ts
+@@ -0,0 +1,336 @@
++import { randomUUID } from "node:crypto";
++import { getDb } from "@/lib/db";
++import { postOzonDeliveryApi } from "@/lib/ozon-delivery";
++import { getOzonShipmentMethod } from "@/lib/ozon-shipment-method";
++
++export type OzonDeliveryPoint = {
++  id: string;
++  name: string;
++  address: string;
++  type: "ozon_pvz" | "ozon_postamat";
++};
++
++export type OzonParcel = {
++  weightGrams: number;
++  widthMm: number;
++  lengthMm: number;
++  heightMm: number;
++};
++
++export type OzonDeliveryQuote = {
++  deliveryPriceRubles: number;
++  insurancePriceRubles: number;
++  priceRubles: number;
++  deliveryDays: number | null;
++  cutoffAt: string | null;
++};
++
++const POINTS_CACHE_TTL_MS = 10 * 60 * 1000;
++const POINTS_PAGE_LIMIT = 100;
++const POINTS_MAX_PAGES = 20;
++let pointsCache: { points: OzonDeliveryPoint[]; expiresAt: number } | null = null;
++
++/** Ozon accepts only +7XXXXXXXXXX for customer phone numbers. */
++export function toOzonPhoneNumber(phone: string) {
++  const digits = phone.replace(/\D/g, "");
++  const national = digits.length === 11 && /^[78]/.test(digits) ? digits.slice(1) : digits;
++  if (national.length !== 10) {
++    throw new Error("Для доставки Ozon укажите российский номер телефона, например +7 900 000-00-00.");
++  }
++  return `+7${national}`;
++}
++
++function records(value: unknown, depth = 0): Record<string, unknown>[] {
++  if (depth > 8) return [];
++  if (Array.isArray(value)) return value.flatMap((item) => records(item, depth + 1));
++  if (!value || typeof value !== "object") return [];
++  const record = value as Record<string, unknown>;
++  return [record, ...Object.values(record).flatMap((item) => records(item, depth + 1))];
++}
++
++function text(record: Record<string, unknown>, keys: string[]) {
++  for (const key of keys) {
++    const candidate = record[key];
++    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
++    if (typeof candidate === "number" && Number.isFinite(candidate)) return String(candidate);
++  }
++  return "";
++}
++
++function integer(value: unknown) {
++  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
++  if (typeof value === "string" && /^\d+$/.test(value.trim())) return Number(value.trim());
++  return null;
++}
++
++/** Ozon sends money as a decimal string, e.g. "1250.50". Keep it exact in kopecks. */
++function kopecks(value: unknown): number {
++  const source = typeof value === "object" && value !== null
++    ? (value as Record<string, unknown>).amount
++    : value;
++  const raw = typeof source === "number" ? String(source) : typeof source === "string" ? source.trim() : "";
++  const match = /^(\d+)(?:[.,](\d{1,2}))?$/.exec(raw);
++  if (!match) return 0;
++  return Number(match[1]) * 100 + Number((match[2] ?? "0").padEnd(2, "0"));
++}
++
++function rublesUp(valueInKopecks: number) {
++  return Math.ceil(valueInKopecks / 100);
++}
++
++function declaredValue(printPriceRubles: number) {
++  if (!Number.isFinite(printPriceRubles) || printPriceRubles <= 0) {
++    throw new Error("Не удалось определить стоимость заказа для доставки Ozon.");
++  }
++  return { amount: printPriceRubles.toFixed(2), currency_code: "RUB" };
++}
++
++function dimensions(parcel: OzonParcel) {
++  const values = [parcel.weightGrams, parcel.lengthMm, parcel.widthMm, parcel.heightMm];
++  if (!values.every((value) => Number.isFinite(value) && value > 0)) {
++    throw new Error("Для доставки Ozon не заданы вес или габариты заказа.");
++  }
++  return {
++    weight_g: Math.ceil(parcel.weightGrams),
++    length_mm: Math.ceil(parcel.lengthMm),
++    width_mm: Math.ceil(parcel.widthMm),
++    height_mm: Math.ceil(parcel.heightMm),
++  };
++}
++
++async function activeShipmentMethodId() {
++  const method = await getOzonShipmentMethod();
++  if (!method) throw new Error("Метод доставки Ozon ещё не создан в админке.");
++  if (!/active/i.test(method.status)) {
++    throw new Error(`Метод доставки Ozon пока не активен (статус: ${method.status}). Обновите статус в админке.`);
++  }
++  return Number(method.id);
++}
++
++/** POST /v1/delivery/check-client — Ozon delivers only to registered customers. */
++export async function checkOzonClient(phone: string) {
++  const response = await postOzonDeliveryApi("/v1/delivery/check-client", {
++    phone_number: toOzonPhoneNumber(phone),
++  });
++  return records(response).some((record) => record.can_be_delivered === true);
++}
++
++/** POST /v1/delivery-point/list — full catalogue, filtered on our side. */
++async function loadOzonDeliveryPoints() {
++  if (pointsCache && pointsCache.expiresAt > Date.now()) return pointsCache.points;
++  const unique = new Map<string, OzonDeliveryPoint>();
++  let cursor = "";
++  for (let page = 0; page < POINTS_MAX_PAGES; page += 1) {
++    const response = await postOzonDeliveryApi("/v1/delivery-point/list", {
++      // cursor is nullable: an empty string is rejected by Ozon.
++      pagination: cursor ? { limit: POINTS_PAGE_LIMIT, cursor } : { limit: POINTS_PAGE_LIMIT },
++    });
++    const items = records(response);
++    for (const item of items) {
++      const id = text(item, ["delivery_point_id"]);
++      const type = text(item, ["type"]).toLowerCase();
++      const address = text(item, ["full_address", "address"]);
++      if (!/^\d+$/.test(id) || !address || item.is_active === false) continue;
++      if (type !== "pvz" && type !== "postamat") continue;
++      const name = text(item, ["name", "delivery_point_number"]) || address;
++      unique.set(id, { id, name, address, type: type === "postamat" ? "ozon_postamat" : "ozon_pvz" });
++    }
++    const next = items.map((item) => text(item, ["cursor", "next_cursor"])).find(Boolean) ?? "";
++    if (!next || next === cursor) break;
++    cursor = next;
++  }
++  const points = [...unique.values()];
++  if (points.length) pointsCache = { points, expiresAt: Date.now() + POINTS_CACHE_TTL_MS };
++  return points;
++}
++
++export async function searchOzonDeliveryPoints(query: string, limit = 40) {
++  const points = await loadOzonDeliveryPoints();
++  const needle = query.trim().toLocaleLowerCase("ru-RU");
++  const matched = needle
++    ? points.filter((point) => `${point.name} ${point.address}`.toLocaleLowerCase("ru-RU").includes(needle))
++    : points;
++  return matched.slice(0, limit);
++}
++
++export async function getOzonDeliveryPoint(id: string) {
++  const points = await loadOzonDeliveryPoints();
++  return points.find((point) => point.id === id) ?? null;
++}
++
++/** POST /v1/delivery-point/check-availability — point limits for this parcel. */
++async function checkOzonPointAvailability(input: {
++  pointId: string;
++  shipmentMethodId: number;
++  requestId: number;
++  printPriceRubles: number;
++  parcel: OzonParcel;
++}) {
++  const response = await postOzonDeliveryApi("/v1/delivery-point/check-availability", {
++    delivery_point_ids: [Number(input.pointId)],
++    shipment_method_id: input.shipmentMethodId,
++    postings: [{
++      request_id: input.requestId,
++      declared_value: declaredValue(input.printPriceRubles),
++      dimensions: dimensions(input.parcel),
++    }],
++  });
++  // Only an explicit negative answer blocks the customer: /v1/order/checkout stays
++  // the authoritative gate, so an unknown payload shape must not break checkout.
++  const denied = records(response).some((record) => {
++    const sameId = text(record, ["delivery_point_id"]) === input.pointId;
++    const unavailable = record.is_available === false || record.available === false
++      || record.can_be_delivered === false;
++    return sameId && unavailable;
++  });
++  return !denied;
++}
++
++/** POST /v1/order/checkout — preliminary cost, insurance, days and cutoff_at. */
++async function requestOzonCheckout(input: {
++  pointId: string;
++  shipmentMethodId: number;
++  requestId: number;
++  phone: string;
++  printPriceRubles: number;
++  parcel: OzonParcel;
++}): Promise<OzonDeliveryQuote> {
++  const response = await postOzonDeliveryApi("/v1/order/checkout", {
++    recipient: { phone_number: toOzonPhoneNumber(input.phone) },
++    postings: [{
++      request_id: input.requestId,
++      shipment_method_id: input.shipmentMethodId,
++      declared_value: declaredValue(input.printPriceRubles),
++      dimensions: dimensions(input.parcel),
++    }],
++    delivery: { delivery_point: { delivery_point_id: Number(input.pointId) } },
++  });
++  const all = records(response);
++  if (all.some((record) => record.can_be_delivered === false || record.is_available === false)) {
++    throw new Error("Ozon не может доставить этот заказ в выбранный пункт выдачи. Выберите другой пункт.");
++  }
++  const priced = all.find((record) => "estimated_delivery_cost" in record || "estimated_delivery_days" in record);
++  if (!priced) throw new Error("Ozon не вернул расчёт стоимости доставки. Попробуйте позже.");
++  const deliveryKopecks = kopecks(priced.estimated_delivery_cost);
++  const insuranceKopecks = kopecks(priced.estimated_insurance_cost);
++  const deliveryPriceRubles = rublesUp(deliveryKopecks);
++  const insurancePriceRubles = rublesUp(insuranceKopecks);
++  return {
++    deliveryPriceRubles,
++    insurancePriceRubles,
++    priceRubles: deliveryPriceRubles + insurancePriceRubles,
++    deliveryDays: integer(priced.estimated_delivery_days),
++    cutoffAt: text(priced, ["cutoff_at"]) || null,
++  };
++}
++
++export async function quoteOzonPickupDelivery(input: {
++  orderId: string;
++  pointId: string;
++  phone: string;
++  printPriceRubles: number;
++  parcel: OzonParcel;
++}) {
++  if (!/^\d+$/.test(input.pointId)) throw new Error("Выберите пункт выдачи Ozon.");
++  if (!(await checkOzonClient(input.phone))) {
++    throw new Error("Этот номер не зарегистрирован на Ozon. Доставка Ozon доступна только покупателям Ozon.");
++  }
++  const shipmentMethodId = await activeShipmentMethodId();
++  const requestId = Number(input.orderId);
++  const available = await checkOzonPointAvailability({
++    pointId: input.pointId, shipmentMethodId, requestId,
++    printPriceRubles: input.printPriceRubles, parcel: input.parcel,
++  });
++  if (!available) {
++    throw new Error("Выбранный пункт Ozon не принимает этот заказ по габаритам или стоимости. Выберите другой пункт.");
++  }
++  return requestOzonCheckout({
++    pointId: input.pointId, shipmentMethodId, requestId, phone: input.phone,
++    printPriceRubles: input.printPriceRubles, parcel: input.parcel,
++  });
++}
++
++type ClaimedOzonOrder = {
++  id: string;
++  order_number: string;
++  customer_name: string;
++  customer_phone: string;
++  pickup_point_id: string | null;
++  print_price: number;
++  delivery_price: number | null;
++  package_weight_grams: number;
++  package_width_mm: number;
++  package_length_mm: number;
++  package_height_mm: number;
++  ozon_delivery_idempotency_key: string;
++};
++
++/**
++ * Creates the Ozon order after the payment is confirmed.
++ * The row is claimed first, so a webhook and a status poll cannot create it twice,
++ * and the stored Idempotency-Key is reused on every retry.
++ */
++export async function createOzonDeliveryForPaidOrder(orderId: string) {
++  const db = getDb();
++  const claimed = await db.query<ClaimedOzonOrder>(`
++    UPDATE orders SET ozon_delivery_status = 'creating', ozon_delivery_error = NULL,
++      ozon_delivery_idempotency_key = COALESCE(ozon_delivery_idempotency_key, $2), updated_at = NOW()
++    WHERE id = $1 AND status = 'paid' AND fulfillment_method = 'ozon_pickup_point'
++      AND ozon_order_number IS NULL AND COALESCE(ozon_delivery_status, '') <> 'creating'
++    RETURNING id, order_number, customer_name, customer_phone, pickup_point_id, print_price, delivery_price,
++      package_weight_grams, package_width_mm, package_length_mm, package_height_mm, ozon_delivery_idempotency_key
++  `, [orderId, randomUUID()]);
++  const order = claimed.rows[0];
++  if (!order) return false;
++  try {
++    if (!order.pickup_point_id) throw new Error("Не сохранён пункт выдачи Ozon.");
++    const parcel: OzonParcel = {
++      weightGrams: Number(order.package_weight_grams), widthMm: Number(order.package_width_mm),
++      lengthMm: Number(order.package_length_mm), heightMm: Number(order.package_height_mm),
++    };
++    const printPriceRubles = Number(order.print_price);
++    const shipmentMethodId = await activeShipmentMethodId();
++    const requestId = Number(order.id);
++    // Ozon requires /v1/order/checkout with the same parameters right before creating the order.
++    const quote = await requestOzonCheckout({
++      pointId: order.pickup_point_id, shipmentMethodId, requestId,
++      phone: order.customer_phone, printPriceRubles, parcel,
++    });
++    const paidDeliveryPrice = Number(order.delivery_price ?? 0);
++    if (quote.priceRubles !== paidDeliveryPrice) {
++      // Never ship on economics the customer did not pay for: leave it for an operator.
++      throw new Error(`Ozon изменил стоимость доставки после оплаты: оплачено ${paidDeliveryPrice} ₽, сейчас ${quote.priceRubles} ₽. Заказ в Ozon не создан.`);
++    }
++    const response = await postOzonDeliveryApi("/v1/order/create", {
++      order_external_id: order.order_number,
++      recipient: {
++        full_name: order.customer_name,
++        phone_number: toOzonPhoneNumber(order.customer_phone),
++      },
++      delivery: { delivery_point: { delivery_point_id: Number(order.pickup_point_id) } },
++      postings: [{
++        request_id: requestId,
++        posting_external_id: order.order_number,
++        shipment_method_id: shipmentMethodId,
++        description: `Печатная продукция, заказ ${order.order_number}`,
++        declared_value: declaredValue(printPriceRubles),
++        dimensions: dimensions(parcel),
++        ...(quote.cutoffAt ? { cutoff_at: quote.cutoffAt } : {}),
++      }],
++    }, { "Idempotency-Key": order.ozon_delivery_idempotency_key });
++    const ozonOrderNumber = records(response).map((record) => text(record, ["order_number"])).find(Boolean) ?? "";
++    if (!ozonOrderNumber) throw new Error("Ozon не вернул номер созданного заказа.");
++    const postingNumber = records(response).map((record) => text(record, ["posting_number"])).find(Boolean) ?? null;
++    await db.query(`
++      UPDATE orders SET ozon_order_number = $1, ozon_posting_number = $2, ozon_delivery_status = 'created',
++        ozon_delivery_error = NULL, ozon_delivery_created_at = NOW(), updated_at = NOW()
++      WHERE id = $3 AND ozon_delivery_status = 'creating'
++    `, [ozonOrderNumber, postingNumber, order.id]);
++    return true;
++  } catch (cause) {
++    const message = cause instanceof Error ? cause.message.slice(0, 2000) : "Unknown Ozon Delivery creation error";
++    await db.query(`UPDATE orders SET ozon_delivery_status = 'failed', ozon_delivery_error = $1, updated_at = NOW()
++      WHERE id = $2 AND ozon_delivery_status = 'creating'`, [message, order.id]);
++    throw cause;
++  }
++}

@@ -1,0 +1,23 @@
+diff --git a/lib/ozon-shipment-method.ts b/lib/ozon-shipment-method.ts
+--- a/lib/ozon-shipment-method.ts
++++ b/lib/ozon-shipment-method.ts
+@@ -1,17 +1,17 @@
+   const filters = kind === "dropoff"
+     ? {
+         is_bulky: false,
+-        types: ["pvz"],
++        types: ["sort_center"],
+         address_search: "Воронеж",
+         viewport,
+       }
+     : {
+         types: ["pvz"],
+         viewport,
+       };
+   const response = await postOzonDeliveryApi(path, {
+     filters,
+-    pagination: { cursor: "", limit: 100 },
++    pagination: { limit: 100 },
+   });
+   return pointsFromResponse(response);
+ }

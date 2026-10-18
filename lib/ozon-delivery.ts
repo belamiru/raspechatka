@@ -75,7 +75,7 @@ function updateCookies(headers: Headers) {
 
 type OzonTrace = { statuses: number[] };
 
-async function postToOzon(url: string, body: unknown, authorization?: string, trace?: OzonTrace) {
+async function postToOzon(url: string, body: unknown, authorization?: string, trace?: OzonTrace, extraHeaders?: Record<string, string>) {
   let target = url;
   const requestBody = JSON.stringify(body);
   for (let attempt = 0; attempt <= MAX_REDIRECTS; attempt += 1) {
@@ -84,6 +84,7 @@ async function postToOzon(url: string, body: unknown, authorization?: string, tr
       "Content-Type": "application/json", Accept: "application/json",
       ...(authorization ? { Authorization: authorization } : {}),
       ...(ozonCookies ? { Cookie: ozonCookies } : {}),
+      ...extraHeaders,
     };
     const response = await fetch(target, {
       method: "POST", headers, body: requestBody, cache: "no-store", redirect: "manual",
@@ -165,13 +166,13 @@ function diagnosticBody(value: unknown, depth = 0): unknown {
 }
 
 /** Server-only POST wrapper for documented Ozon Delivery API endpoints. */
-export async function postOzonDeliveryApi(path: string, body: unknown) {
+export async function postOzonDeliveryApi(path: string, body: unknown, extraHeaders?: Record<string, string>) {
   if (!/^\/v1\/[a-z0-9-]+(?:\/[a-z0-9-]+)*$/.test(path)) {
     throw new Error("Некорректный путь Ozon Delivery API.");
   }
   const accessToken = await getOzonDeliveryAccessToken();
   const trace: OzonTrace = { statuses: [] };
-  const response = await postToOzon(`${DELIVERY_API_ORIGIN}${path}`, body, `Bearer ${accessToken}`, trace);
+  const response = await postToOzon(`${DELIVERY_API_ORIGIN}${path}`, body, `Bearer ${accessToken}`, trace, extraHeaders);
   const text = await response.text();
   let result: unknown = null;
   try { result = JSON.parse(text); } catch { /* Non-JSON protection response. */ }
