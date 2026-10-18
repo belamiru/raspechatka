@@ -8,6 +8,8 @@ export type OzonDeliveryPoint = {
   name: string;
   address: string;
   type: "ozon_pvz" | "ozon_postamat";
+  latitude: number | null;
+  longitude: number | null;
 };
 
 export type OzonParcel = {
@@ -55,6 +57,11 @@ function text(record: Record<string, unknown>, keys: string[]) {
     if (typeof candidate === "number" && Number.isFinite(candidate)) return String(candidate);
   }
   return "";
+}
+
+function coordinate(value: unknown, min: number, max: number) {
+  const raw = typeof value === "number" ? value : typeof value === "string" ? Number(value.trim()) : NaN;
+  return Number.isFinite(raw) && raw >= min && raw <= max && raw !== 0 ? raw : null;
 }
 
 function integer(value: unknown) {
@@ -133,7 +140,15 @@ async function loadOzonDeliveryPoints() {
       if (!/^\d+$/.test(id) || !address || item.is_active === false) continue;
       if (type !== "pvz" && type !== "postamat") continue;
       const name = text(item, ["name", "delivery_point_number"]) || address;
-      unique.set(id, { id, name, address, type: type === "postamat" ? "ozon_postamat" : "ozon_pvz" });
+      const coordinates = item.coordinates && typeof item.coordinates === "object" && !Array.isArray(item.coordinates)
+        ? item.coordinates as Record<string, unknown>
+        : item;
+      unique.set(id, {
+        id, name, address,
+        type: type === "postamat" ? "ozon_postamat" : "ozon_pvz",
+        latitude: coordinate(coordinates.latitude ?? coordinates.lat, -90, 90),
+        longitude: coordinate(coordinates.longitude ?? coordinates.lon ?? coordinates.lng, -180, 180),
+      });
     }
     const next = items.map((item) => text(item, ["cursor", "next_cursor"])).find(Boolean) ?? "";
     if (!next || next === cursor) break;
@@ -144,13 +159,13 @@ async function loadOzonDeliveryPoints() {
   return points;
 }
 
-export async function searchOzonDeliveryPoints(query: string, limit = 40) {
+export async function searchOzonDeliveryPoints(query: string, limit = 300) {
   const points = await loadOzonDeliveryPoints();
   const needle = query.trim().toLocaleLowerCase("ru-RU");
   const matched = needle
     ? points.filter((point) => `${point.name} ${point.address}`.toLocaleLowerCase("ru-RU").includes(needle))
     : points;
-  return matched.slice(0, limit);
+  return { points: matched.slice(0, limit), total: points.length, matched: matched.length };
 }
 
 export async function getOzonDeliveryPoint(id: string) {
