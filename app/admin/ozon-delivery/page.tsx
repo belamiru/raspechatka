@@ -29,6 +29,11 @@ export default async function OzonDeliveryAdminPage() {
     </section>
     <OzonDeliveryConnectionCheck configured={configuration.configured} />
     <OzonShipmentMethodSettings initialMethod={shipmentMethod} />
+    <p className="mt-5 text-sm">
+      <Link href="/admin/ozon-delivery/diagnostics" className="font-semibold text-blue-700 underline">
+        Диагностика: заказы в Ozon и журнал ошибок →
+      </Link>
+    </p>
     <section className="mt-5 rounded-xl border border-slate-200 p-5 text-sm text-slate-600">
       <h2 className="text-lg font-bold text-slate-900">Следующий шаг</h2>
       <p className="mt-2">После успешной проверки добавим выбор пункта отгрузки, пункта возвратов и создание постоянного метода <code>dropoff</code>. Затем Ozon появится у покупателя как вариант доставки в ПВЗ.</p>
