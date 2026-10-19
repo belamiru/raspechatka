@@ -301,7 +301,9 @@ export async function quoteOzonPickupDelivery(input: {
     throw new Error("Этот номер не зарегистрирован на Ozon. Доставка Ozon доступна только покупателям Ozon.");
   }
   const shipmentMethodId = await activeShipmentMethodId();
-  const requestId = Number(input.orderId);
+  // Каждый вызов получает новый request_id: Ozon кэширует расчёт по нему,
+  // и повторный id вернул бы устаревшую цену вместо актуальной.
+  const requestId = freshRequestId();
   const available = await checkOzonPointAvailability({
     pointId: input.pointId, shipmentMethodId, requestId,
     printPriceRubles: input.printPriceRubles, parcel: input.parcel,
@@ -329,6 +331,91 @@ type ClaimedOzonOrder = {
   package_height_mm: number;
   ozon_delivery_idempotency_key: string;
 };
+
+type ClaimedApprove = {
+  id: string;
+  order_number: string;
+  ozon_posting_number: string | null;
+  ozon_cutoff_at: Date | null;
+};
+
+/**
+ * POST /v1/posting/approve — шаг, без которого созданный заказ оставался
+ * черновиком и не попадал в логистику Ozon.
+ *
+ * Строка захватывается заранее: два одновременных вызова не подтвердят заказ
+ * дважды. Повторный запуск возможен из admin-роута после сбоя.
+ */
+export async function approveOzonDeliveryForPaidOrder(orderId: string) {
+  const db = getDb();
+  const claimed = await db.query<ClaimedApprove>(`
+    UPDATE orders SET ozon_delivery_status = 'approving', ozon_delivery_error = NULL, updated_at = NOW()
+    WHERE id = $1 AND status = 'paid' AND fulfillment_method = 'ozon_pickup_point'
+      AND ozon_posting_number IS NOT NULL AND ozon_order_number IS NOT NULL
+      AND COALESCE(ozon_delivery_status, '') IN ('created', 'approve_failed', 'approve_expired')
+    RETURNING id, order_number, ozon_posting_number, ozon_cutoff_at
+  `, [orderId]);
+  const order = claimed.rows[0];
+  if (!order) return false;
+
+  try {
+    const postingNumber = order.ozon_posting_number as string;
+
+    // Просроченный слот Ozon отвергнет валидацией, поэтому такой заказ уходит
+    // оператору, а не в бесконечный повтор заведомо неудачного запроса.
+    if (order.ozon_cutoff_at && new Date(order.ozon_cutoff_at).getTime() < Date.now()) {
+      throw new Error(
+        `Срок отгрузки истёк ${new Date(order.ozon_cutoff_at).toLocaleString("ru-RU")}. ` +
+          "Подтвердите заказ в кабинете Ozon или оформите его заново."
+      );
+    }
+
+    const response = await postOzonDeliveryApi("/v1/posting/approve", {
+      posting_numbers: [postingNumber],
+    });
+
+    // Ozon отвечает 200 и при ошибке по конкретному отправлению — читаем results.
+    const failure = records(response).find(
+      (record) => record.error && typeof record.error === "object"
+    );
+    if (failure) {
+      const error = failure.error as Record<string, unknown>;
+      const code = text(error, ["code"]) || "OtherError";
+      const message = text(error, ["message"]) || "Ошибка подтверждения отправления.";
+      if (code === "NotEnoughBalance") {
+        throw new Error(
+          `Недостаточно средств на балансе Ozon для подтверждения отправления ${postingNumber}. ` +
+            "Пополните баланс и повторите подтверждение."
+        );
+      }
+      if (code === "PostingNotFound") {
+        throw new Error(
+          `Отправление ${postingNumber} не найдено в Ozon. Проверьте номер отправления.`
+        );
+      }
+      throw new Error(`Ozon ${code}: ${message}`);
+    }
+
+    await db.query(`
+      UPDATE orders SET ozon_delivery_status = 'approved', ozon_delivery_error = NULL,
+        ozon_delivery_approved_at = NOW(), updated_at = NOW()
+      WHERE id = $1 AND ozon_delivery_status = 'approving'
+    `, [order.id]);
+    return true;
+  } catch (cause) {
+    const message = cause instanceof Error
+      ? cause.message.slice(0, 2000)
+      : "Unknown Ozon approve error";
+    // Просроченный слот помечается отдельно: повторять его бессмысленно,
+    // заказ требует ручной обработки оператором.
+    const expired = message.includes("Срок отгрузки истёк");
+    await db.query(`
+      UPDATE orders SET ozon_delivery_status = $1, ozon_delivery_error = $2, updated_at = NOW()
+      WHERE id = $3 AND ozon_delivery_status = 'approving'
+    `, [expired ? "approve_expired" : "approve_failed", message, order.id]);
+    throw cause;
+  }
+}
 
 /**
  * Creates the Ozon order after the payment is confirmed.
@@ -396,6 +483,10 @@ export async function createOzonDeliveryForPaidOrder(orderId: string) {
         ozon_delivery_error = NULL, ozon_delivery_created_at = NOW(), updated_at = NOW()
       WHERE id = $3 AND ozon_delivery_status = 'creating'
     `, [ozonOrderNumber, postingNumber, order.id]);
+    // Подтверждение к отгрузке — отдельный шаг: без него отправление не попадает
+    // в логистику Ozon. Его сбой не должен отменять уже созданный заказ, поэтому
+    // статус заказа остаётся 'created', а причина ложится в ozon_delivery_error.
+    await approveOzonDeliveryForPaidOrder(order.id).catch(() => undefined);
     return true;
   } catch (cause) {
     const message = cause instanceof Error ? cause.message.slice(0, 2000) : "Unknown Ozon Delivery creation error";

@@ -13,64 +13,66 @@ export type OzonPickupPoint = {
 
 type PointsResponse = { points?: OzonPickupPoint[]; total?: number; matched?: number; error?: string };
 
-// Leaflet + OpenStreetMap need no API key, so the map works with the keys we already have.
-const LEAFLET_CSS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-const LEAFLET_JS = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-const MOSCOW: [number, number] = [55.7558, 37.6176];
+/**
+ * Яндекс Карты: подробнее, чем OpenStreetMap, и привычнее покупателю.
+ * Ключ помечен NEXT_PUBLIC_, поэтому его и должно быть видно в браузере.
+ */
+const YANDEX_MAPS_KEY = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY ?? "";
+const YANDEX_MAPS_JS = `https://api-maps.yandex.ru/2.1/?apikey=${encodeURIComponent(YANDEX_MAPS_KEY)}&lang=ru_RU`;
+const DEFAULT_CENTER: [number, number] = [55.7558, 37.6176];
 
-type LeafletMap = {
-  setView: (center: [number, number], zoom: number) => LeafletMap;
-  removeLayer: (layer: unknown) => void;
-  fitBounds: (bounds: unknown, options?: unknown) => void;
-  remove: () => void;
+type YandexPlacemark = {
+  events: { add: (event: string, handler: () => void) => void };
 };
-type LeafletNamespace = {
-  map: (element: HTMLElement, options?: unknown) => LeafletMap;
-  tileLayer: (url: string, options?: unknown) => { addTo: (map: LeafletMap) => unknown };
-  marker: (position: [number, number], options?: unknown) => {
-    addTo: (map: LeafletMap) => { bindPopup: (html: string) => unknown; on: (event: string, handler: () => void) => unknown };
+
+type YandexMap = {
+  geoObjects: {
+    removeAll: () => void;
+    add: (object: unknown) => void;
+    getBounds: () => unknown;
   };
-  layerGroup: () => { addTo: (map: LeafletMap) => unknown; clearLayers: () => void; addLayer: (layer: unknown) => void };
-  latLngBounds: (positions: [number, number][]) => unknown;
-  divIcon: (options: unknown) => unknown;
+  setBounds: (bounds: unknown, options?: unknown) => void;
+  setCenter: (center: [number, number], zoom?: number) => void;
+  destroy: () => void;
+};
+
+type YandexNamespace = {
+  ready: (callback: () => void) => void;
+  Map: new (element: HTMLElement, options: unknown) => YandexMap;
+  Placemark: new (position: [number, number], properties?: unknown, options?: unknown) => YandexPlacemark;
 };
 
 declare global {
-  interface Window { L?: LeafletNamespace }
+  interface Window { ymaps?: YandexNamespace }
 }
 
-function loadLeaflet() {
-  return new Promise<LeafletNamespace>((resolve, reject) => {
-    if (window.L) { resolve(window.L); return; }
-    if (!document.querySelector(`link[href="${LEAFLET_CSS}"]`)) {
-      const css = document.createElement("link");
-      css.rel = "stylesheet";
-      css.href = LEAFLET_CSS;
-      document.head.appendChild(css);
+const MAP_UNAVAILABLE = "Карта недоступна — выберите пункт из списка.";
+
+function loadYandexMaps() {
+  return new Promise<YandexNamespace>((resolve, reject) => {
+    if (!YANDEX_MAPS_KEY) {
+      reject(new Error("Не задан NEXT_PUBLIC_YANDEX_MAPS_API_KEY."));
+      return;
     }
-    const existing = document.querySelector<HTMLScriptElement>(`script[src="${LEAFLET_JS}"]`);
+    if (window.ymaps) {
+      window.ymaps.ready(() => resolve(window.ymaps as YandexNamespace));
+      return;
+    }
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${YANDEX_MAPS_JS}"]`);
     const script = existing ?? document.createElement("script");
-    const onReady = () => (window.L ? resolve(window.L) : reject(new Error("Не удалось загрузить карту.")));
-    script.addEventListener("load", onReady);
-    script.addEventListener("error", () => reject(new Error("Не удалось загрузить карту.")));
+    script.addEventListener("load", () => {
+      if (!window.ymaps) {
+        reject(new Error("Яндекс Карты загрузились без API."));
+        return;
+      }
+      window.ymaps.ready(() => resolve(window.ymaps as YandexNamespace));
+    });
+    script.addEventListener("error", () => reject(new Error("Не удалось загрузить Яндекс Карты.")));
     if (!existing) {
-      script.src = LEAFLET_JS;
+      script.src = YANDEX_MAPS_JS;
       script.async = true;
-      document.body.appendChild(script);
-    } else if (window.L) {
-      onReady();
+      document.head.appendChild(script);
     }
-  });
-}
-
-function markerIcon(L: LeafletNamespace, active: boolean) {
-  const color = active ? "#1d4ed8" : "#005bff";
-  const size = active ? 34 : 26;
-  return L.divIcon({
-    className: "",
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size],
-    html: `<div style="width:${size}px;height:${size}px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${color};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
   });
 }
 
@@ -84,13 +86,13 @@ export function OzonPickupPicker({ selected, onSelect }: {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [mapError, setMapError] = useState("");
-  const [view, setView] = useState<"map" | "list">("map");
+  // Без ключа карта не построится, поэтому по умолчанию сразу показываем список.
+  const [view, setView] = useState<"map" | "list">(YANDEX_MAPS_KEY ? "map" : "list");
   const latestRequest = useRef(0);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<LeafletMap | null>(null);
-  const layerRef = useRef<ReturnType<LeafletNamespace["layerGroup"]> | null>(null);
-  const leafletRef = useRef<LeafletNamespace | null>(null);
+  const mapRef = useRef<YandexMap | null>(null);
+  const yandexRef = useRef<YandexNamespace | null>(null);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
 
@@ -126,49 +128,63 @@ export function OzonPickupPicker({ selected, onSelect }: {
     [points],
   );
 
-  // Create the map once, only while the map tab is visible.
+  // Создаём карту, только когда видима вкладка «На карте» и контейнер уже в DOM.
   useEffect(() => {
     if (view !== "map" || mapRef.current || !containerRef.current) return;
     let cancelled = false;
-    void loadLeaflet()
-      .then((L) => {
+    void loadYandexMaps()
+      .then((ymaps) => {
         if (cancelled || !containerRef.current || mapRef.current) return;
-        leafletRef.current = L;
-        const map = L.map(containerRef.current, { scrollWheelZoom: true }).setView(MOSCOW, 9);
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          attribution: "© OpenStreetMap", maxZoom: 19,
-        }).addTo(map);
-        layerRef.current = L.layerGroup();
-        layerRef.current.addTo(map);
-        mapRef.current = map;
+        yandexRef.current = ymaps;
+        mapRef.current = new ymaps.Map(containerRef.current, {
+          center: DEFAULT_CENTER,
+          zoom: 9,
+          controls: ["zoomControl", "geolocationControl"],
+        });
         setMapError("");
       })
-      .catch(() => { if (!cancelled) setMapError("Карта недоступна — выберите пункт из списка."); });
+      .catch(() => {
+        if (cancelled) return;
+        setMapError(MAP_UNAVAILABLE);
+        setView("list");
+      });
     return () => { cancelled = true; };
   }, [view]);
 
-  useEffect(() => () => { mapRef.current?.remove(); mapRef.current = null; }, []);
-
-  // Redraw markers whenever the visible points or the selection change.
+  // Уничтожаем карту, когда контейнер уходит из разметки: иначе ymaps держит
+  // ссылку на удалённый DOM и не даёт создать карту заново при возврате.
   useEffect(() => {
-    const L = leafletRef.current;
+    if (view === "map") return;
+    mapRef.current?.destroy();
+    mapRef.current = null;
+  }, [view]);
+
+  useEffect(() => () => {
+    mapRef.current?.destroy();
+    mapRef.current = null;
+  }, []);
+
+  // Перерисовываем метки при смене найденных пунктов или выбора.
+  useEffect(() => {
+    const ymaps = yandexRef.current;
     const map = mapRef.current;
-    const layer = layerRef.current;
-    if (view !== "map" || !L || !map || !layer) return;
-    layer.clearLayers();
-    const positions: [number, number][] = [];
+    if (view !== "map" || !ymaps || !map) return;
+    map.geoObjects.removeAll();
     for (const point of mapped) {
-      const position: [number, number] = [point.latitude!, point.longitude!];
-      positions.push(position);
-      const marker = L.marker(position, { icon: markerIcon(L, selected?.id === point.id) }).addTo(map);
-      marker.bindPopup(
-        `<b>${point.name.replace(/</g, "&lt;")}</b><br>${point.address.replace(/</g, "&lt;")}`,
+      const active = selected?.id === point.id;
+      const placemark = new ymaps.Placemark(
+        [point.latitude as number, point.longitude as number],
+        { hintContent: point.name, balloonContent: `${point.name}<br>${point.address}` },
+        { preset: active ? "islands#darkBlueIcon" : "islands#blueIcon" },
       );
-      marker.on("click", () => onSelectRef.current(point));
-      layer.addLayer(marker as unknown);
+      placemark.events.add("click", () => onSelectRef.current(point));
+      map.geoObjects.add(placemark);
     }
-    if (positions.length === 1) map.setView(positions[0], 14);
-    else if (positions.length > 1) map.fitBounds(L.latLngBounds(positions), { padding: [30, 30] });
+    if (mapped.length === 1) {
+      map.setCenter([mapped[0].latitude as number, mapped[0].longitude as number], 15);
+    } else if (mapped.length > 1) {
+      map.setBounds(map.geoObjects.getBounds(), { checkZoomRange: true, zoomMargin: 40 });
+    }
   }, [mapped, selected, view]);
 
   const emptyMessage = total === 0
@@ -183,8 +199,8 @@ export function OzonPickupPicker({ selected, onSelect }: {
     </label>
 
     <div className="mt-3 flex gap-2">
-      <button type="button" onClick={() => setView("map")}
-        className={`rounded-lg border px-3 py-1.5 text-sm ${view === "map" ? "border-blue-700 bg-blue-50 font-semibold text-blue-700" : "border-slate-200"}`}>
+      <button type="button" onClick={() => setView("map")} disabled={!YANDEX_MAPS_KEY}
+        className={`rounded-lg border px-3 py-1.5 text-sm disabled:opacity-50 ${view === "map" ? "border-blue-700 bg-blue-50 font-semibold text-blue-700" : "border-slate-200"}`}>
         На карте
       </button>
       <button type="button" onClick={() => setView("list")}

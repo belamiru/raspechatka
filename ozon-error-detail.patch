@@ -1,0 +1,20 @@
+diff --git a/lib/ozon-delivery.ts b/lib/ozon-delivery.ts
+index ab5b005..d7609f6 100644
+--- a/lib/ozon-delivery.ts
++++ b/lib/ozon-delivery.ts
+@@ -181,10 +181,12 @@ export async function postOzonDeliveryApi(path: string, body: unknown, extraHead
+     const summary = `Ozon ${path}: HTTP ${response.status}; format=${format}; HTTP chain=${trace.statuses.join(" -> ")}.`;
+     // Never expose raw HTML: it can contain challenge cookies and scripts.
+     // Only the admin point-search endpoints receive detailed diagnostics.
+-    const isSearch = path === "/v1/dropoff-point/search" || path === "/v1/return-point/search";
+-    const detail = isSearch && result !== null
++    // JSON error bodies from Ozon describe what was wrong with the request
++    // (validation messages, error codes). They are passed through with secrets
++    // and request/headers keys redacted. HTML and non-JSON bodies stay withheld.
++    const detail = result !== null
+       ? safeDiagnosticText(JSON.stringify(diagnosticBody(result)), accessToken)
+-      : "Response body withheld (non-JSON or non-search endpoint).";
++      : "Response body withheld (non-JSON).";
+     throw new Error(`${summary} ${detail}`);
+   }
+   if (!result || typeof result !== "object") throw new Error("Ozon Delivery API вернул некорректный ответ.");

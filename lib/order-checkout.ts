@@ -45,6 +45,7 @@ export function ensureOrderCheckoutSchema() {
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_status VARCHAR(40);
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_error TEXT;
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_created_at TIMESTAMPTZ;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_approved_at TIMESTAMPTZ;
     `).then(() => undefined).catch((error) => {
       schemaReady = null;
       throw error;
