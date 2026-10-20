@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "preflight": "npm run lint && npm run build",
+    "check": "npm run lint && npm run build"
   },
   "dependencies": {
     "jose": "^6.2.10",

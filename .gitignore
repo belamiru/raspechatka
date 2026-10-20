@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# локальные патчи и разовые отладочные скрипты: в репозитории им не место
+*.patch
+check-*.mjs
+dump-*.mjs
+*.ps1
