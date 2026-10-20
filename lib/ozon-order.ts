@@ -12,6 +12,11 @@ export type OzonDeliveryPoint = {
   longitude: number | null;
 };
 
+/** Внутренняя точка с ограничениями пункта: в ответ API не попадает. */
+type OzonDeliveryPointWithLimits = OzonDeliveryPoint & {
+  restrictions?: Record<string, unknown> | null;
+};
+
 export type OzonParcel = {
   weightGrams: number;
   widthMm: number;
@@ -35,8 +40,13 @@ const POINTS_MAX_PAGES = 3000;
 const POINTS_INFO_BATCH = 100;
 const POINTS_INFO_CONCURRENCY = 4;
 const POINTS_FRESH_MS = 12 * 60 * 60 * 1000;
-const POINTS_SEARCH_LIMIT = 2000;
-const POINTS_NEARBY_LIMIT = 500;
+/** Сколько пунктов отдаём на один запрос карты. */
+const POINTS_QUERY_LIMIT = 3000;
+/** Область по умолчанию: Воронеж с пригородами, пока карта не передала свою. */
+export const DEFAULT_POINTS_BOUNDS = {
+  minLatitude: 51.45, maxLatitude: 51.85,
+  minLongitude: 38.95, maxLongitude: 39.45,
+};
 /** Воронеж: показываем ближайшие пункты, пока покупатель ничего не ввёл. */
 export const DEFAULT_POINTS_CENTER = { latitude: 51.6608, longitude: 39.2003 };
 let pointsCache: { points: OzonDeliveryPoint[]; syncedAt: number } | null = null;
@@ -124,12 +134,28 @@ function futureCutoff(value: string | null) {
 type OzonResultError = { code: string; message: string };
 
 /** Первый объект error из results — Ozon кладёт туда отказ при HTTP 200. */
+/**
+ * Ozon отдаёт код в двух видах: `DeliveryCalculationError` в документации и
+ * `delivery_calculation_error` в ответе. Без нормализации таблица текстов
+ * не срабатывала и покупатель видел сырой код.
+ */
+function normalizeOzonCode(code: string) {
+  if (!code) return "OtherError";
+  if (/[A-Z]/.test(code)) return code;
+  return code.split(/[\s_-]+/).filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join("");
+}
+
 function ozonResultError(response: unknown): OzonResultError | null {
   for (const record of records(response)) {
     const error = record.error;
     if (error && typeof error === "object" && !Array.isArray(error)) {
       const details = error as Record<string, unknown>;
-      return { code: text(details, ["code"]) || "OtherError", message: text(details, ["message"]) };
+      return {
+        code: normalizeOzonCode(text(details, ["code"])),
+        message: text(details, ["message"]),
+      };
     }
   }
   return null;
@@ -145,9 +171,10 @@ const OZON_ERROR_TEXT: Record<string, string> = {
 };
 
 /** Понятный текст для покупателя плюс код и исходное сообщение Ozon для диагностики. */
-function describeOzonError(error: OzonResultError) {
+function describeOzonError(error: OzonResultError, pointHint = "") {
   const human = OZON_ERROR_TEXT[error.code] ?? "Ozon не смог рассчитать доставку.";
-  return `${human} [${error.code}${error.message ? `: ${error.message}` : ""}]`;
+  const hint = pointHint ? ` ${pointHint}` : "";
+  return `${human}${hint} [${error.code}${error.message ? `: ${error.message}` : ""}]`;
 }
 
 function dimensions(parcel: OzonParcel) {
@@ -214,7 +241,7 @@ async function fetchOzonDeliveryPointBatch(batch: string[]) {
   const response = await postOzonDeliveryApi("/v1/delivery-point/info", {
     delivery_point_ids: batch.map(Number),
   });
-  const points: OzonDeliveryPoint[] = [];
+  const points: OzonDeliveryPointWithLimits[] = [];
   for (const item of records(response)) {
     const id = text(item, ["delivery_point_id"]);
     const type = text(item, ["type"]).toLowerCase();
@@ -231,6 +258,10 @@ async function fetchOzonDeliveryPointBatch(batch: string[]) {
       type: type === "postamat" ? "ozon_postamat" : "ozon_pvz",
       latitude: coordinate(coordinates.latitude ?? coordinates.lat, -90, 90),
       longitude: coordinate(coordinates.longitude ?? coordinates.lon ?? coordinates.lng, -180, 180),
+      // Ограничения нужны, чтобы объяснить отказ Ozon конкретной цифрой.
+      restrictions: item.restrictions && typeof item.restrictions === "object"
+        ? item.restrictions as Record<string, unknown>
+        : null,
     });
   }
   return points;
@@ -266,8 +297,12 @@ function ensureOzonPointsSchema() {
         type VARCHAR(20) NOT NULL,
         latitude DOUBLE PRECISION,
         longitude DOUBLE PRECISION,
+        restrictions JSONB,
         synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+      ALTER TABLE ozon_delivery_points ADD COLUMN IF NOT EXISTS restrictions JSONB;
+      CREATE INDEX IF NOT EXISTS ozon_delivery_points_geo_idx
+        ON ozon_delivery_points (latitude, longitude);
     `).then(() => undefined).catch((error) => {
       pointsSchemaReady = null;
       throw error;
@@ -278,44 +313,37 @@ function ensureOzonPointsSchema() {
 
 type StoredPoint = {
   id: string; name: string; address: string; type: string;
-  latitude: number | null; longitude: number | null; synced_at: Date;
+  latitude: number | null; longitude: number | null;
 };
 
-async function readStoredOzonPoints() {
-  await ensureOzonPointsSchema();
-  const result = await getDb().query<StoredPoint>(
-    "SELECT id::text AS id, name, address, type, latitude, longitude, synced_at FROM ozon_delivery_points"
-  );
-  let syncedAt = 0;
-  const points = result.rows.map((row) => {
-    syncedAt = Math.max(syncedAt, new Date(row.synced_at).getTime());
-    return {
-      id: row.id, name: row.name, address: row.address,
-      type: row.type === "ozon_postamat" ? "ozon_postamat" as const : "ozon_pvz" as const,
-      latitude: row.latitude === null ? null : Number(row.latitude),
-      longitude: row.longitude === null ? null : Number(row.longitude),
-    };
-  });
-  return { points, syncedAt };
+function toDeliveryPoint(row: StoredPoint): OzonDeliveryPoint {
+  return {
+    id: row.id, name: row.name, address: row.address,
+    type: row.type === "ozon_postamat" ? "ozon_postamat" : "ozon_pvz",
+    latitude: row.latitude === null ? null : Number(row.latitude),
+    longitude: row.longitude === null ? null : Number(row.longitude),
+  };
 }
 
-async function storeOzonPoints(points: OzonDeliveryPoint[]) {
+async function storeOzonPoints(points: OzonDeliveryPointWithLimits[]) {
   const db = getDb();
   const startedAt = new Date();
   for (let start = 0; start < points.length; start += 1000) {
     const chunk = points.slice(start, start + 1000);
     await db.query(`
-      INSERT INTO ozon_delivery_points (id, name, address, type, latitude, longitude, synced_at)
-      SELECT u.id, u.name, u.address, u.type, u.latitude, u.longitude, $7
-      FROM unnest($1::bigint[], $2::text[], $3::text[], $4::text[], $5::float8[], $6::float8[])
-        AS u(id, name, address, type, latitude, longitude)
+      INSERT INTO ozon_delivery_points (id, name, address, type, latitude, longitude, restrictions, synced_at)
+      SELECT u.id, u.name, u.address, u.type, u.latitude, u.longitude, u.restrictions, $8
+      FROM unnest($1::bigint[], $2::text[], $3::text[], $4::text[], $5::float8[], $6::float8[], $7::jsonb[])
+        AS u(id, name, address, type, latitude, longitude, restrictions)
       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, address = EXCLUDED.address,
         type = EXCLUDED.type, latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude,
-        synced_at = EXCLUDED.synced_at
+        restrictions = EXCLUDED.restrictions, synced_at = EXCLUDED.synced_at
     `, [
       chunk.map((point) => point.id), chunk.map((point) => point.name),
       chunk.map((point) => point.address), chunk.map((point) => point.type),
-      chunk.map((point) => point.latitude), chunk.map((point) => point.longitude), startedAt,
+      chunk.map((point) => point.latitude), chunk.map((point) => point.longitude),
+      chunk.map((point) => (point.restrictions ? JSON.stringify(point.restrictions) : null)),
+      startedAt,
     ]);
   }
   // Закрытые пункты удаляются только после полной успешной выгрузки.
@@ -332,14 +360,16 @@ export function refreshOzonDeliveryPoints() {
       await ensureOzonPointsSchema();
       const ids = await fetchOzonDeliveryPointIds();
       const points = await fetchOzonDeliveryPointDetails(ids);
-      const previous = pointsCache?.points.length ?? 0;
+      const previous = Number((await getDb().query<{ count: string }>(
+        "SELECT COUNT(*)::text AS count FROM ozon_delivery_points"
+      )).rows[0]?.count ?? 0);
       // Защита от частичного ответа: каталог, резко уменьшившийся вдвое,
       // скорее означает сбой Ozon, чем массовое закрытие пунктов.
       if (!points.length || (previous > 0 && points.length < previous / 2)) {
         throw new Error(`Ozon вернул подозрительно мало пунктов: ${points.length} (было ${previous}). Каталог не обновлён.`);
       }
       await storeOzonPoints(points);
-      pointsCache = { points, syncedAt: Date.now() };
+      pointsCache = { points: points.map(toDeliveryPoint), syncedAt: Date.now() };
       return points.length;
     })().finally(() => { pointsRefresh = null; });
   }
@@ -358,52 +388,134 @@ export async function getOzonPointsCatalogStatus() {
   };
 }
 
-async function loadOzonDeliveryPoints() {
-  if (!pointsCache) {
-    const stored = await readStoredOzonPoints();
-    if (stored.points.length) pointsCache = stored;
+export type OzonPointsBounds = {
+  minLatitude: number; maxLatitude: number;
+  minLongitude: number; maxLongitude: number;
+};
+
+export type OzonPointsQuery = {
+  query?: string;
+  bounds?: OzonPointsBounds;
+  limit?: number;
+};
+
+/**
+ * Пункты по области карты или по тексту. Раньше каталог резался до 500 ближайших
+ * к одной точке, поэтому часть ПВЗ города не показывалась — и при каждом
+ * запросе это были разные пункты, потому что порядок был нестабильным.
+ * Теперь выборка идёт в SQL с детерминированной сортировкой.
+ */
+export async function queryOzonDeliveryPoints(options: OzonPointsQuery = {}) {
+  await ensureOzonPointsSchema();
+  const db = getDb();
+  const words = (options.query ?? "").trim().toLocaleLowerCase("ru-RU")
+    .split(/[\s,]+/).filter(Boolean);
+  const bounds = options.bounds ?? (words.length ? undefined : DEFAULT_POINTS_BOUNDS);
+
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (words.length) {
+    // Все слова должны встретиться в названии или адресе.
+    params.push(words.map((word) => `%${word.replace(/[\\%_]/g, (char) => `\\${char}`)}%`));
+    conditions.push(`(name || ' ' || address) ILIKE ALL($${params.length}::text[])`);
   }
-  if (!pointsCache) {
-    // Самый первый запуск: каталога ещё нет, ждём выгрузку.
-    await refreshOzonDeliveryPoints();
-    // TypeScript не знает, что выгрузка заполнила кэш, поэтому читаем заново.
-    const loaded = pointsCache as { points: OzonDeliveryPoint[]; syncedAt: number } | null;
-    return loaded ? loaded.points : [];
+  if (bounds) {
+    params.push(bounds.minLatitude, bounds.maxLatitude, bounds.minLongitude, bounds.maxLongitude);
+    const last = params.length;
+    conditions.push(
+      `latitude BETWEEN $${last - 3} AND $${last - 2} AND longitude BETWEEN $${last - 1} AND $${last}`
+    );
   }
-  if (Date.now() - pointsCache.syncedAt > POINTS_FRESH_MS) {
-    // Устаревший каталог отдаём сразу, а свежий подгружаем в фоне.
-    void refreshOzonDeliveryPoints().catch(() => undefined);
-  }
-  return pointsCache.points;
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const limit = Math.min(options.limit ?? POINTS_QUERY_LIMIT, POINTS_QUERY_LIMIT);
+  params.push(limit);
+
+  const [found, all] = await Promise.all([
+    db.query<StoredPoint>(`
+      SELECT id::text AS id, name, address, type, latitude, longitude
+      FROM ozon_delivery_points ${where}
+      ORDER BY id
+      LIMIT $${params.length}
+    `, params),
+    db.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM ozon_delivery_points"),
+  ]);
+
+  const points = found.rows.map(toDeliveryPoint);
+  return { points, total: Number(all.rows[0]?.count ?? 0), matched: points.length };
 }
 
-function distanceSquared(point: OzonDeliveryPoint) {
-  if (point.latitude === null || point.longitude === null) return Number.POSITIVE_INFINITY;
-  const lat = point.latitude - DEFAULT_POINTS_CENTER.latitude;
-  const lon = (point.longitude - DEFAULT_POINTS_CENTER.longitude) * Math.cos(DEFAULT_POINTS_CENTER.latitude * Math.PI / 180);
-  return lat * lat + lon * lon;
-}
-
-export async function searchOzonDeliveryPoints(query: string, limit = POINTS_SEARCH_LIMIT) {
-  const points = await loadOzonDeliveryPoints();
-  const words = query.trim().toLocaleLowerCase("ru-RU").split(/[\s,]+/).filter(Boolean);
-  if (!words.length) {
-    // Пустой запрос: ближайшие к Воронежу пункты, а не случайные по всей стране.
-    const nearby = [...points].sort((a, b) => distanceSquared(a) - distanceSquared(b));
-    return { points: nearby.slice(0, POINTS_NEARBY_LIMIT), total: points.length, matched: points.length };
-  }
-  // Все слова запроса должны встретиться: «воронеж ленина» не найдёт
-  // улицу Ленина в другом городе.
-  const matched = points.filter((point) => {
-    const haystack = `${point.name} ${point.address}`.toLocaleLowerCase("ru-RU");
-    return words.every((word) => haystack.includes(word));
-  });
-  return { points: matched.slice(0, limit), total: points.length, matched: matched.length };
+/** Совместимость: поиск по тексту без области карты. */
+export async function searchOzonDeliveryPoints(query: string, limit = POINTS_QUERY_LIMIT) {
+  return queryOzonDeliveryPoints({ query, limit });
 }
 
 export async function getOzonDeliveryPoint(id: string) {
-  const points = await loadOzonDeliveryPoints();
-  return points.find((point) => point.id === id) ?? null;
+  await ensureOzonPointsSchema();
+  const result = await getDb().query<StoredPoint>(
+    "SELECT id::text AS id, name, address, type, latitude, longitude FROM ozon_delivery_points WHERE id = $1",
+    [id],
+  );
+  const row = result.rows[0];
+  return row ? toDeliveryPoint(row) : null;
+}
+
+/**
+ * Объясняет отказ Ozon цифрами самого пункта: ограничения приходят в
+ * /v1/delivery-point/info и раньше не сохранялись вовсе.
+ */
+export async function explainOzonPointRestrictions(
+  pointId: string,
+  parcel: OzonParcel,
+  declaredValueRubles: number,
+) {
+  try {
+    await ensureOzonPointsSchema();
+    const result = await getDb().query<{ restrictions: Record<string, unknown> | null }>(
+      "SELECT restrictions FROM ozon_delivery_points WHERE id = $1", [pointId],
+    );
+    const limits = result.rows[0]?.restrictions;
+    if (!limits) return "";
+
+    const number = (value: unknown) => {
+      const parsed = typeof value === "number" ? value : Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    const money = (value: unknown) => {
+      if (value && typeof value === "object") return number((value as Record<string, unknown>).amount);
+      return number(value);
+    };
+
+    const violations: string[] = [];
+    const maxWeight = number(limits.max_weight_g);
+    const minWeight = number(limits.min_weight_g);
+    const maxWidth = number(limits.max_width_mm);
+    const maxLength = number(limits.max_length_mm);
+    const maxHeight = number(limits.max_height_mm);
+    const minPrice = money(limits.min_price);
+    const maxPrice = money(limits.max_price);
+
+    if (maxWeight !== null && parcel.weightGrams > maxWeight) violations.push(`вес ${parcel.weightGrams} г больше ${maxWeight} г`);
+    if (minWeight !== null && parcel.weightGrams < minWeight) violations.push(`вес ${parcel.weightGrams} г меньше ${minWeight} г`);
+    if (maxWidth !== null && parcel.widthMm > maxWidth) violations.push(`ширина ${parcel.widthMm} мм больше ${maxWidth} мм`);
+    if (maxLength !== null && parcel.lengthMm > maxLength) violations.push(`длина ${parcel.lengthMm} мм больше ${maxLength} мм`);
+    if (maxHeight !== null && parcel.heightMm > maxHeight) violations.push(`высота ${parcel.heightMm} мм больше ${maxHeight} мм`);
+    if (maxPrice !== null && declaredValueRubles > maxPrice) violations.push(`стоимость ${declaredValueRubles} ₽ больше ${maxPrice} ₽`);
+    if (minPrice !== null && declaredValueRubles < minPrice) violations.push(`стоимость ${declaredValueRubles} ₽ меньше минимальной ${minPrice} ₽`);
+
+    if (violations.length) return `Не подходит: ${violations.join(", ")}.`;
+
+    const shown: string[] = [];
+    if (maxWeight !== null) shown.push(`вес до ${maxWeight} г`);
+    if (maxLength !== null && maxWidth !== null && maxHeight !== null) {
+      shown.push(`габариты до ${maxLength}×${maxWidth}×${maxHeight} мм`);
+    }
+    if (minPrice !== null || maxPrice !== null) {
+      shown.push(`стоимость ${minPrice ?? 0}–${maxPrice ?? "∞"} ₽`);
+    }
+    return shown.length ? `Пункт принимает: ${shown.join(", ")}.` : "";
+  } catch {
+    return "";
+  }
 }
 
 /** POST /v1/delivery-point/check-availability — point limits for this parcel. */
@@ -464,9 +576,16 @@ async function requestOzonCheckout(input: {
   const priced = all.find((record) => "estimated_delivery_cost" in record || "estimated_delivery_days" in record);
   if (!priced) {
     const problem = ozonResultError(response);
-    throw new Error(problem
-      ? describeOzonError(problem)
-      : "Ozon не вернул расчёт стоимости доставки. Попробуйте позже.");
+    if (!problem) throw new Error("Ozon не вернул расчёт стоимости доставки. Попробуйте позже.");
+    // Отказ по конкретному пункту объясняем его же ограничениями.
+    const hint = problem.code === "DeliveryPointRestrictionsError" || problem.code === "DeliveryCalculationError"
+      ? await explainOzonPointRestrictions(
+        input.pointId,
+        input.parcel,
+        input.printPriceRubles,
+      )
+      : "";
+    throw new Error(describeOzonError(problem, hint));
   }
   const deliveryKopecks = kopecks(priced.estimated_delivery_cost);
   const insuranceKopecks = kopecks(priced.estimated_insurance_cost);

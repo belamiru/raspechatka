@@ -38,10 +38,14 @@ type YandexObjectManager = {
   };
 };
 
+type YandexBounds = { get: (index: number) => [number, number] };
+
 type YandexMap = {
   geoObjects: { add: (object: unknown) => void };
+  events: { add: (event: string, handler: () => void) => void };
   setBounds: (bounds: Bounds, options?: unknown) => Promise<unknown>;
   setCenter: (center: [number, number], zoom?: number, options?: unknown) => Promise<unknown>;
+  getBounds: () => YandexBounds | null;
   getZoom: () => number;
   setZoom: (zoom: number) => Promise<unknown>;
   container: { fitToViewport: () => void };
@@ -76,6 +80,25 @@ function robustBounds(points: OzonPickupPoint[]): Bounds | null {
 
 declare global {
   interface Window { ymaps?: YandexNamespace }
+}
+
+type Viewport = { minLat: number; maxLat: number; minLon: number; maxLon: number };
+
+function viewportOf(bounds: YandexBounds | null): Viewport | null {
+  if (!bounds) return null;
+  try {
+    const [[minLat, minLon], [maxLat, maxLon]] = [bounds.get(0), bounds.get(1)];
+    if ([minLat, minLon, maxLat, maxLon].every((value) => Number.isFinite(value))) {
+      return { minLat, maxLat, minLon, maxLon };
+    }
+  } catch {
+    /* границы недоступны до первой отрисовки */
+  }
+  return null;
+}
+
+function boundsOfViewport(viewport: Viewport): Bounds {
+  return [[viewport.minLat, viewport.minLon], [viewport.maxLat, viewport.maxLon]];
 }
 
 const MAP_UNAVAILABLE = "Карта недоступна — выберите пункт из списка.";
@@ -128,15 +151,26 @@ export function OzonPickupPicker({ selected, onSelect }: {
   const managerRef = useRef<YandexObjectManager | null>(null);
   const highlightedRef = useRef<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [viewport, setViewport] = useState<Viewport | null>(null);
+  const viewportRef = useRef<Viewport | null>(null);
+  viewportRef.current = viewport;
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
 
-  const load = useCallback((search: string) => {
+  const load = useCallback((search: string, area: Viewport | null) => {
     const requestNumber = latestRequest.current + 1;
     latestRequest.current = requestNumber;
     setLoading(true);
     setError("");
-    void fetch(`/api/ozon-delivery/points?query=${encodeURIComponent(search)}`)
+    const params = new URLSearchParams({ query: search });
+    // Без области (текстовый поиск) сервер отдаёт пункты по всей стране.
+    if (area && !search) {
+      params.set("minLat", String(area.minLat));
+      params.set("maxLat", String(area.maxLat));
+      params.set("minLon", String(area.minLon));
+      params.set("maxLon", String(area.maxLon));
+    }
+    void fetch(`/api/ozon-delivery/points?${params.toString()}`)
       .then(async (response) => {
         const result = await response.json() as PointsResponse;
         if (!response.ok) throw new Error(result.error ?? "Не удалось загрузить пункты выдачи Ozon.");
@@ -153,10 +187,11 @@ export function OzonPickupPicker({ selected, onSelect }: {
       .finally(() => { if (latestRequest.current === requestNumber) setLoading(false); });
   }, []);
 
+  // Текст ищется с задержкой, область карты — сразу: она меняется редко.
   useEffect(() => {
-    const timer = setTimeout(() => load(query), query ? 400 : 0);
+    const timer = setTimeout(() => load(query, viewport), query ? 400 : 0);
     return () => clearTimeout(timer);
-  }, [load, query]);
+  }, [load, query, viewport]);
 
   const mapped = useMemo(
     () => points.filter((point) => point.latitude !== null && point.longitude !== null),
@@ -190,6 +225,19 @@ export function OzonPickupPicker({ selected, onSelect }: {
         managerRef.current = manager;
         setMapReady(true);
         setMapError("");
+        // Покупатель двигает карту — подгружаем пункты новой области.
+        map.events.add("boundschange", () => {
+          const next = viewportOf(map.getBounds());
+          if (!next) return;
+          const previous = viewportRef.current;
+          const moved = !previous
+            || Math.abs(next.minLat - previous.minLat) > 0.01
+            || Math.abs(next.maxLat - previous.maxLat) > 0.01
+            || Math.abs(next.minLon - previous.minLon) > 0.01
+            || Math.abs(next.maxLon - previous.maxLon) > 0.01;
+          if (moved) setViewport(next);
+        });
+        setViewport(viewportOf(map.getBounds()));
       })
       .catch(() => {
         if (cancelled) return;
@@ -238,6 +286,9 @@ export function OzonPickupPicker({ selected, onSelect }: {
         options: { preset: "islands#blueDotIcon" },
       })),
     });
+    // Если карта уже показывает свой участок, подгонять её под метки нельзя:
+    // это и вызывало отдаление на весь ЦФО.
+    if (viewportRef.current) return;
     const bounds = robustBounds(mapped);
     if (!bounds) {
       void map.setCenter(DEFAULT_CENTER, DEFAULT_ZOOM);
@@ -267,7 +318,7 @@ export function OzonPickupPicker({ selected, onSelect }: {
   }, [selected, mapReady, mapped]);
 
   const shownMessage = total !== null && points.length > 0
-    ? `Показано ${points.length.toLocaleString("ru-RU")} из ${total.toLocaleString("ru-RU")} пунктов Ozon${query ? " по вашему запросу" : " рядом с Воронежем"}.`
+    ? `Показано ${points.length.toLocaleString("ru-RU")} из ${total.toLocaleString("ru-RU")} пунктов Ozon${query ? " по вашему запросу" : " в видимой области карты"}.`
     : "";
 
   const emptyMessage = total === 0
