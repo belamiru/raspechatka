@@ -19,28 +19,60 @@ type PointsResponse = { points?: OzonPickupPoint[]; total?: number; matched?: nu
  */
 const YANDEX_MAPS_KEY = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY ?? "";
 const YANDEX_MAPS_JS = `https://api-maps.yandex.ru/2.1/?apikey=${encodeURIComponent(YANDEX_MAPS_KEY)}&lang=ru_RU`;
-const DEFAULT_CENTER: [number, number] = [55.7558, 37.6176];
+// Воронеж — город, где работает типография.
+const DEFAULT_CENTER: [number, number] = [51.6608, 39.2003];
+const DEFAULT_ZOOM = 12;
+const SELECTED_ZOOM = 16;
+const MAX_FIT_ZOOM = 16;
 
-type YandexPlacemark = {
-  events: { add: (event: string, handler: () => void) => void };
+type Bounds = [[number, number], [number, number]];
+
+type YandexEvent = { get: (key: string) => unknown };
+
+type YandexObjectManager = {
+  add: (collection: unknown) => void;
+  removeAll: () => void;
+  objects: {
+    events: { add: (event: string, handler: (event: YandexEvent) => void) => void };
+    setObjectOptions: (id: string, options: unknown) => void;
+  };
 };
 
 type YandexMap = {
-  geoObjects: {
-    removeAll: () => void;
-    add: (object: unknown) => void;
-    getBounds: () => unknown;
-  };
-  setBounds: (bounds: unknown, options?: unknown) => void;
-  setCenter: (center: [number, number], zoom?: number) => void;
+  geoObjects: { add: (object: unknown) => void };
+  setBounds: (bounds: Bounds, options?: unknown) => Promise<unknown>;
+  setCenter: (center: [number, number], zoom?: number, options?: unknown) => Promise<unknown>;
+  getZoom: () => number;
+  setZoom: (zoom: number) => Promise<unknown>;
+  container: { fitToViewport: () => void };
   destroy: () => void;
 };
 
 type YandexNamespace = {
   ready: (callback: () => void) => void;
   Map: new (element: HTMLElement, options: unknown) => YandexMap;
-  Placemark: new (position: [number, number], properties?: unknown, options?: unknown) => YandexPlacemark;
+  ObjectManager: new (options: unknown) => YandexObjectManager;
 };
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] as string));
+}
+
+/**
+ * Границы без выбросов: берём 5–95 перцентили. Иначе один пункт области,
+ * попавший в поиск «воронеж», растягивает карту на весь ЦФО.
+ */
+function robustBounds(points: OzonPickupPoint[]): Bounds | null {
+  if (!points.length) return null;
+  const lats = points.map((point) => point.latitude as number).sort((a, b) => a - b);
+  const lons = points.map((point) => point.longitude as number).sort((a, b) => a - b);
+  const pick = (values: number[], share: number) => values[Math.min(values.length - 1, Math.floor(values.length * share))];
+  const trim = points.length >= 20;
+  return [
+    [trim ? pick(lats, 0.05) : lats[0], trim ? pick(lons, 0.05) : lons[0]],
+    [trim ? pick(lats, 0.95) : lats[lats.length - 1], trim ? pick(lons, 0.95) : lons[lons.length - 1]],
+  ];
+}
 
 declare global {
   interface Window { ymaps?: YandexNamespace }
@@ -93,6 +125,9 @@ export function OzonPickupPicker({ selected, onSelect }: {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<YandexMap | null>(null);
   const yandexRef = useRef<YandexNamespace | null>(null);
+  const managerRef = useRef<YandexObjectManager | null>(null);
+  const highlightedRef = useRef<string | null>(null);
+  const [mapReady, setMapReady] = useState(false);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
 
@@ -127,6 +162,8 @@ export function OzonPickupPicker({ selected, onSelect }: {
     () => points.filter((point) => point.latitude !== null && point.longitude !== null),
     [points],
   );
+  const pointsByIdRef = useRef(new Map<string, OzonPickupPoint>());
+  pointsByIdRef.current = new Map(mapped.map((point) => [point.id, point]));
 
   // Создаём карту, только когда видима вкладка «На карте» и контейнер уже в DOM.
   useEffect(() => {
@@ -136,11 +173,22 @@ export function OzonPickupPicker({ selected, onSelect }: {
       .then((ymaps) => {
         if (cancelled || !containerRef.current || mapRef.current) return;
         yandexRef.current = ymaps;
-        mapRef.current = new ymaps.Map(containerRef.current, {
+        const map = new ymaps.Map(containerRef.current, {
           center: DEFAULT_CENTER,
-          zoom: 9,
+          zoom: DEFAULT_ZOOM,
           controls: ["zoomControl", "geolocationControl"],
         });
+        // ObjectManager с кластерами держит тысячи меток без тормозов.
+        const manager = new ymaps.ObjectManager({ clusterize: true, gridSize: 64, clusterDisableClickZoom: false });
+        manager.objects.events.add("click", (event) => {
+          const id = String(event.get("objectId"));
+          const point = pointsByIdRef.current.get(id);
+          if (point) onSelectRef.current(point);
+        });
+        map.geoObjects.add(manager);
+        mapRef.current = map;
+        managerRef.current = manager;
+        setMapReady(true);
         setMapError("");
       })
       .catch(() => {
@@ -157,35 +205,70 @@ export function OzonPickupPicker({ selected, onSelect }: {
     if (view === "map") return;
     mapRef.current?.destroy();
     mapRef.current = null;
+    managerRef.current = null;
+    highlightedRef.current = null;
+    setMapReady(false);
   }, [view]);
 
   useEffect(() => () => {
     mapRef.current?.destroy();
     mapRef.current = null;
+    managerRef.current = null;
   }, []);
 
-  // Перерисовываем метки при смене найденных пунктов или выбора.
+  // Метки и масштаб — только при новом результате поиска. Выбор пункта
+  // больше не перерисовывает всё и не отдаляет карту.
   useEffect(() => {
-    const ymaps = yandexRef.current;
     const map = mapRef.current;
-    if (view !== "map" || !ymaps || !map) return;
-    map.geoObjects.removeAll();
-    for (const point of mapped) {
-      const active = selected?.id === point.id;
-      const placemark = new ymaps.Placemark(
-        [point.latitude as number, point.longitude as number],
-        { hintContent: point.name, balloonContent: `${point.name}<br>${point.address}` },
-        { preset: active ? "islands#darkBlueIcon" : "islands#blueIcon" },
-      );
-      placemark.events.add("click", () => onSelectRef.current(point));
-      map.geoObjects.add(placemark);
+    const manager = managerRef.current;
+    if (!mapReady || !map || !manager) return;
+    manager.removeAll();
+    highlightedRef.current = null;
+    manager.add({
+      type: "FeatureCollection",
+      features: mapped.map((point) => ({
+        type: "Feature",
+        id: point.id,
+        geometry: { type: "Point", coordinates: [point.latitude, point.longitude] },
+        properties: {
+          hintContent: escapeHtml(point.name),
+          balloonContentHeader: escapeHtml(point.name),
+          balloonContentBody: escapeHtml(point.address),
+        },
+        options: { preset: "islands#blueDotIcon" },
+      })),
+    });
+    const bounds = robustBounds(mapped);
+    if (!bounds) {
+      void map.setCenter(DEFAULT_CENTER, DEFAULT_ZOOM);
+    } else if (mapped.length === 1) {
+      void map.setCenter([mapped[0].latitude as number, mapped[0].longitude as number], SELECTED_ZOOM);
+    } else {
+      void map.setBounds(bounds, { checkZoomRange: true, zoomMargin: 24 }).then(() => {
+        if (map.getZoom() > MAX_FIT_ZOOM) void map.setZoom(MAX_FIT_ZOOM);
+      });
     }
-    if (mapped.length === 1) {
-      map.setCenter([mapped[0].latitude as number, mapped[0].longitude as number], 15);
-    } else if (mapped.length > 1) {
-      map.setBounds(map.geoObjects.getBounds(), { checkZoomRange: true, zoomMargin: 40 });
+  }, [mapped, mapReady]);
+
+  // Выбор: подсвечиваем метку и приближаемся к ней, остальное не трогаем.
+  useEffect(() => {
+    const map = mapRef.current;
+    const manager = managerRef.current;
+    if (!mapReady || !map || !manager) return;
+    if (highlightedRef.current && pointsByIdRef.current.has(highlightedRef.current)) {
+      manager.objects.setObjectOptions(highlightedRef.current, { preset: "islands#blueDotIcon" });
     }
-  }, [mapped, selected, view]);
+    highlightedRef.current = null;
+    if (!selected || selected.latitude === null || selected.longitude === null) return;
+    if (!pointsByIdRef.current.has(selected.id)) return;
+    manager.objects.setObjectOptions(selected.id, { preset: "islands#redDotIcon" });
+    highlightedRef.current = selected.id;
+    void map.setCenter([selected.latitude, selected.longitude], Math.max(map.getZoom(), SELECTED_ZOOM), { duration: 300 });
+  }, [selected, mapReady, mapped]);
+
+  const shownMessage = total !== null && points.length > 0
+    ? `Показано ${points.length.toLocaleString("ru-RU")} из ${total.toLocaleString("ru-RU")} пунктов Ozon${query ? " по вашему запросу" : " рядом с Воронежем"}.`
+    : "";
 
   const emptyMessage = total === 0
     ? "Ozon не вернул ни одного пункта выдачи для вашего договора. Проверьте метод доставки в админке."
@@ -212,10 +295,11 @@ export function OzonPickupPicker({ selected, onSelect }: {
     {loading && <p className="mt-2 text-sm text-slate-600">Загружаем пункты выдачи…</p>}
     {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
     {!loading && !error && points.length === 0 && <p className="mt-2 text-sm text-slate-600">{emptyMessage}</p>}
+    {!loading && !error && shownMessage && <p className="mt-2 text-xs text-slate-500">{shownMessage}</p>}
 
     {view === "map" && <>
       {mapError && <p role="alert" className="mt-2 text-sm text-red-700">{mapError}</p>}
-      <div ref={containerRef} className="mt-3 h-80 w-full overflow-hidden rounded-xl border border-slate-200" />
+      <div ref={containerRef} className="mt-3 h-96 w-full overflow-hidden rounded-xl border border-slate-200" />
       {!loading && !error && points.length > 0 && mapped.length === 0 &&
         <p className="mt-2 text-sm text-slate-600">У найденных пунктов нет координат — выберите пункт списком.</p>}
       {mapped.length > 0 && <p className="mt-2 text-xs text-slate-500">Нажмите на метку, чтобы выбрать пункт выдачи.</p>}

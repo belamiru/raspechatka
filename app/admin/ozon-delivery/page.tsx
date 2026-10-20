@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { OzonDeliveryConnectionCheck } from "@/components/ozon-delivery-connection-check";
 import { OzonShipmentMethodSettings } from "@/components/ozon-shipment-method-settings";
+import { OzonPointsCatalogPanel } from "@/components/ozon-points-catalog-panel";
 import { getAdminCookieName, isAdminSession } from "@/lib/auth";
 import { getOzonDeliveryConfiguration } from "@/lib/ozon-delivery";
 import { getOzonShipmentMethod } from "@/lib/ozon-shipment-method";
@@ -29,6 +30,7 @@ export default async function OzonDeliveryAdminPage() {
     </section>
     <OzonDeliveryConnectionCheck configured={configuration.configured} />
     <OzonShipmentMethodSettings initialMethod={shipmentMethod} />
+    <OzonPointsCatalogPanel />
     <p className="mt-5 text-sm">
       <Link href="/admin/ozon-delivery/diagnostics" className="font-semibold text-blue-700 underline">
         Диагностика: заказы в Ozon и журнал ошибок →

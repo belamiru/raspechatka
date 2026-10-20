@@ -27,11 +27,21 @@ export type OzonDeliveryQuote = {
   cutoffAt: string | null;
 };
 
-const POINTS_CACHE_TTL_MS = 10 * 60 * 1000;
+// Раньше читались только 20 страниц по 100 — это 2000 пунктов на всю Россию,
+// поэтому в Воронеже их почти не было. Теперь каталог читается целиком
+// и хранится в базе, чтобы не перечитывать его при каждом перезапуске.
 const POINTS_PAGE_LIMIT = 100;
-const POINTS_MAX_PAGES = 20;
+const POINTS_MAX_PAGES = 3000;
 const POINTS_INFO_BATCH = 100;
-let pointsCache: { points: OzonDeliveryPoint[]; expiresAt: number } | null = null;
+const POINTS_INFO_CONCURRENCY = 4;
+const POINTS_FRESH_MS = 12 * 60 * 60 * 1000;
+const POINTS_SEARCH_LIMIT = 2000;
+const POINTS_NEARBY_LIMIT = 500;
+/** Воронеж: показываем ближайшие пункты, пока покупатель ничего не ввёл. */
+export const DEFAULT_POINTS_CENTER = { latitude: 51.6608, longitude: 39.2003 };
+let pointsCache: { points: OzonDeliveryPoint[]; syncedAt: number } | null = null;
+let pointsRefresh: Promise<number> | null = null;
+let pointsSchemaReady: Promise<void> | null = null;
 
 /** Ozon accepts only +7XXXXXXXXXX for customer phone numbers. */
 export function toOzonPhoneNumber(phone: string) {
@@ -111,6 +121,35 @@ function futureCutoff(value: string | null) {
   return parsed > Date.now() + 60_000 ? value : null;
 }
 
+type OzonResultError = { code: string; message: string };
+
+/** Первый объект error из results — Ozon кладёт туда отказ при HTTP 200. */
+function ozonResultError(response: unknown): OzonResultError | null {
+  for (const record of records(response)) {
+    const error = record.error;
+    if (error && typeof error === "object" && !Array.isArray(error)) {
+      const details = error as Record<string, unknown>;
+      return { code: text(details, ["code"]) || "OtherError", message: text(details, ["message"]) };
+    }
+  }
+  return null;
+}
+
+const OZON_ERROR_TEXT: Record<string, string> = {
+  DeliveryPointRestrictionsError: "Этот пункт выдачи не принимает отправление с такими параметрами (вес, размер или стоимость). Выберите другой пункт.",
+  DeliveryCalculationError: "Ozon не смог рассчитать стоимость доставки или страховки для этого заказа.",
+  DeliveryAvailabilityError: "Ozon не доставляет в выбранный пункт выдачи. Выберите другой пункт.",
+  DeliveryPointNotFound: "Ozon не нашёл выбранный пункт выдачи. Выберите другой пункт.",
+  RecipientError: "Ozon не может доставить заказ этому получателю. Проверьте телефон.",
+  SamePointError: "Пункт выдачи совпадает с пунктом отгрузки. Выберите другой пункт.",
+};
+
+/** Понятный текст для покупателя плюс код и исходное сообщение Ozon для диагностики. */
+function describeOzonError(error: OzonResultError) {
+  const human = OZON_ERROR_TEXT[error.code] ?? "Ozon не смог рассчитать доставку.";
+  return `${human} [${error.code}${error.message ? `: ${error.message}` : ""}]`;
+}
+
 function dimensions(parcel: OzonParcel) {
   const values = [parcel.weightGrams, parcel.lengthMm, parcel.widthMm, parcel.heightMm];
   if (!values.every((value) => Number.isFinite(value) && value > 0)) {
@@ -171,50 +210,194 @@ async function fetchOzonDeliveryPointIds() {
 }
 
 /** POST /v1/delivery-point/info — details for up to POINTS_INFO_BATCH ids at a time. */
-async function fetchOzonDeliveryPointDetails(ids: string[]) {
-  const unique = new Map<string, OzonDeliveryPoint>();
-  for (let start = 0; start < ids.length; start += POINTS_INFO_BATCH) {
-    const batch = ids.slice(start, start + POINTS_INFO_BATCH).map(Number);
-    const response = await postOzonDeliveryApi("/v1/delivery-point/info", {
-      delivery_point_ids: batch,
+async function fetchOzonDeliveryPointBatch(batch: string[]) {
+  const response = await postOzonDeliveryApi("/v1/delivery-point/info", {
+    delivery_point_ids: batch.map(Number),
+  });
+  const points: OzonDeliveryPoint[] = [];
+  for (const item of records(response)) {
+    const id = text(item, ["delivery_point_id"]);
+    const type = text(item, ["type"]).toLowerCase();
+    const address = text(item, ["full_address", "address"]);
+    if (!/^\d+$/.test(id) || !address) continue;
+    if (item.is_active === false) continue;
+    if (type !== "pvz" && type !== "postamat") continue;
+    const name = text(item, ["name", "delivery_point_number"]) || address;
+    const coordinates = item.coordinates && typeof item.coordinates === "object" && !Array.isArray(item.coordinates)
+      ? item.coordinates as Record<string, unknown>
+      : {};
+    points.push({
+      id, name, address,
+      type: type === "postamat" ? "ozon_postamat" : "ozon_pvz",
+      latitude: coordinate(coordinates.latitude ?? coordinates.lat, -90, 90),
+      longitude: coordinate(coordinates.longitude ?? coordinates.lon ?? coordinates.lng, -180, 180),
     });
-    for (const item of records(response)) {
-      const id = text(item, ["delivery_point_id"]);
-      const type = text(item, ["type"]).toLowerCase();
-      const address = text(item, ["full_address", "address"]);
-      if (!/^\d+$/.test(id) || !address) continue;
-      if (item.is_active === false) continue;
-      if (type !== "pvz" && type !== "postamat") continue;
-      const name = text(item, ["name", "delivery_point_number"]) || address;
-      const coordinates = item.coordinates && typeof item.coordinates === "object" && !Array.isArray(item.coordinates)
-        ? item.coordinates as Record<string, unknown>
-        : {};
-      unique.set(id, {
-        id, name, address,
-        type: type === "postamat" ? "ozon_postamat" : "ozon_pvz",
-        latitude: coordinate(coordinates.latitude ?? coordinates.lat, -90, 90),
-        longitude: coordinate(coordinates.longitude ?? coordinates.lon ?? coordinates.lng, -180, 180),
-      });
-    }
   }
-  return [...unique.values()];
-}
-
-async function loadOzonDeliveryPoints() {
-  if (pointsCache && pointsCache.expiresAt > Date.now()) return pointsCache.points;
-  const ids = await fetchOzonDeliveryPointIds();
-  if (!ids.length) return [];
-  const points = await fetchOzonDeliveryPointDetails(ids);
-  if (points.length) pointsCache = { points, expiresAt: Date.now() + POINTS_CACHE_TTL_MS };
   return points;
 }
 
-export async function searchOzonDeliveryPoints(query: string, limit = 300) {
+async function fetchOzonDeliveryPointDetails(ids: string[]) {
+  const batches: string[][] = [];
+  for (let start = 0; start < ids.length; start += POINTS_INFO_BATCH) {
+    batches.push(ids.slice(start, start + POINTS_INFO_BATCH));
+  }
+  const unique = new Map<string, OzonDeliveryPoint>();
+  let next = 0;
+  // Несколько параллельных запросов: последовательно десятки тысяч пунктов
+  // читались бы слишком долго, а без ограничения Ozon ответит 429.
+  const worker = async () => {
+    while (next < batches.length) {
+      const batch = batches[next];
+      next += 1;
+      for (const point of await fetchOzonDeliveryPointBatch(batch)) unique.set(point.id, point);
+    }
+  };
+  await Promise.all(Array.from({ length: POINTS_INFO_CONCURRENCY }, worker));
+  return [...unique.values()];
+}
+
+function ensureOzonPointsSchema() {
+  if (!pointsSchemaReady) {
+    pointsSchemaReady = getDb().query(`
+      CREATE TABLE IF NOT EXISTS ozon_delivery_points (
+        id BIGINT PRIMARY KEY,
+        name TEXT NOT NULL,
+        address TEXT NOT NULL,
+        type VARCHAR(20) NOT NULL,
+        latitude DOUBLE PRECISION,
+        longitude DOUBLE PRECISION,
+        synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `).then(() => undefined).catch((error) => {
+      pointsSchemaReady = null;
+      throw error;
+    });
+  }
+  return pointsSchemaReady;
+}
+
+type StoredPoint = {
+  id: string; name: string; address: string; type: string;
+  latitude: number | null; longitude: number | null; synced_at: Date;
+};
+
+async function readStoredOzonPoints() {
+  await ensureOzonPointsSchema();
+  const result = await getDb().query<StoredPoint>(
+    "SELECT id::text AS id, name, address, type, latitude, longitude, synced_at FROM ozon_delivery_points"
+  );
+  let syncedAt = 0;
+  const points = result.rows.map((row) => {
+    syncedAt = Math.max(syncedAt, new Date(row.synced_at).getTime());
+    return {
+      id: row.id, name: row.name, address: row.address,
+      type: row.type === "ozon_postamat" ? "ozon_postamat" as const : "ozon_pvz" as const,
+      latitude: row.latitude === null ? null : Number(row.latitude),
+      longitude: row.longitude === null ? null : Number(row.longitude),
+    };
+  });
+  return { points, syncedAt };
+}
+
+async function storeOzonPoints(points: OzonDeliveryPoint[]) {
+  const db = getDb();
+  const startedAt = new Date();
+  for (let start = 0; start < points.length; start += 1000) {
+    const chunk = points.slice(start, start + 1000);
+    await db.query(`
+      INSERT INTO ozon_delivery_points (id, name, address, type, latitude, longitude, synced_at)
+      SELECT u.id, u.name, u.address, u.type, u.latitude, u.longitude, $7
+      FROM unnest($1::bigint[], $2::text[], $3::text[], $4::text[], $5::float8[], $6::float8[])
+        AS u(id, name, address, type, latitude, longitude)
+      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, address = EXCLUDED.address,
+        type = EXCLUDED.type, latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude,
+        synced_at = EXCLUDED.synced_at
+    `, [
+      chunk.map((point) => point.id), chunk.map((point) => point.name),
+      chunk.map((point) => point.address), chunk.map((point) => point.type),
+      chunk.map((point) => point.latitude), chunk.map((point) => point.longitude), startedAt,
+    ]);
+  }
+  // Закрытые пункты удаляются только после полной успешной выгрузки.
+  await db.query("DELETE FROM ozon_delivery_points WHERE synced_at < $1", [startedAt]);
+}
+
+/**
+ * Полная выгрузка каталога из Ozon в базу. Одновременно идёт только одна:
+ * повторные вызовы получают тот же Promise.
+ */
+export function refreshOzonDeliveryPoints() {
+  if (!pointsRefresh) {
+    pointsRefresh = (async () => {
+      await ensureOzonPointsSchema();
+      const ids = await fetchOzonDeliveryPointIds();
+      const points = await fetchOzonDeliveryPointDetails(ids);
+      const previous = pointsCache?.points.length ?? 0;
+      // Защита от частичного ответа: каталог, резко уменьшившийся вдвое,
+      // скорее означает сбой Ozon, чем массовое закрытие пунктов.
+      if (!points.length || (previous > 0 && points.length < previous / 2)) {
+        throw new Error(`Ozon вернул подозрительно мало пунктов: ${points.length} (было ${previous}). Каталог не обновлён.`);
+      }
+      await storeOzonPoints(points);
+      pointsCache = { points, syncedAt: Date.now() };
+      return points.length;
+    })().finally(() => { pointsRefresh = null; });
+  }
+  return pointsRefresh;
+}
+
+export async function getOzonPointsCatalogStatus() {
+  await ensureOzonPointsSchema();
+  const result = await getDb().query<{ count: string; synced_at: Date | null }>(
+    "SELECT COUNT(*)::text AS count, MAX(synced_at) AS synced_at FROM ozon_delivery_points"
+  );
+  return {
+    count: Number(result.rows[0]?.count ?? 0),
+    syncedAt: result.rows[0]?.synced_at ?? null,
+    refreshing: pointsRefresh !== null,
+  };
+}
+
+async function loadOzonDeliveryPoints() {
+  if (!pointsCache) {
+    const stored = await readStoredOzonPoints();
+    if (stored.points.length) pointsCache = stored;
+  }
+  if (!pointsCache) {
+    // Самый первый запуск: каталога ещё нет, ждём выгрузку.
+    await refreshOzonDeliveryPoints();
+    // TypeScript не знает, что выгрузка заполнила кэш, поэтому читаем заново.
+    const loaded = pointsCache as { points: OzonDeliveryPoint[]; syncedAt: number } | null;
+    return loaded ? loaded.points : [];
+  }
+  if (Date.now() - pointsCache.syncedAt > POINTS_FRESH_MS) {
+    // Устаревший каталог отдаём сразу, а свежий подгружаем в фоне.
+    void refreshOzonDeliveryPoints().catch(() => undefined);
+  }
+  return pointsCache.points;
+}
+
+function distanceSquared(point: OzonDeliveryPoint) {
+  if (point.latitude === null || point.longitude === null) return Number.POSITIVE_INFINITY;
+  const lat = point.latitude - DEFAULT_POINTS_CENTER.latitude;
+  const lon = (point.longitude - DEFAULT_POINTS_CENTER.longitude) * Math.cos(DEFAULT_POINTS_CENTER.latitude * Math.PI / 180);
+  return lat * lat + lon * lon;
+}
+
+export async function searchOzonDeliveryPoints(query: string, limit = POINTS_SEARCH_LIMIT) {
   const points = await loadOzonDeliveryPoints();
-  const needle = query.trim().toLocaleLowerCase("ru-RU");
-  const matched = needle
-    ? points.filter((point) => `${point.name} ${point.address}`.toLocaleLowerCase("ru-RU").includes(needle))
-    : points;
+  const words = query.trim().toLocaleLowerCase("ru-RU").split(/[\s,]+/).filter(Boolean);
+  if (!words.length) {
+    // Пустой запрос: ближайшие к Воронежу пункты, а не случайные по всей стране.
+    const nearby = [...points].sort((a, b) => distanceSquared(a) - distanceSquared(b));
+    return { points: nearby.slice(0, POINTS_NEARBY_LIMIT), total: points.length, matched: points.length };
+  }
+  // Все слова запроса должны встретиться: «воронеж ленина» не найдёт
+  // улицу Ленина в другом городе.
+  const matched = points.filter((point) => {
+    const haystack = `${point.name} ${point.address}`.toLocaleLowerCase("ru-RU");
+    return words.every((word) => haystack.includes(word));
+  });
   return { points: matched.slice(0, limit), total: points.length, matched: matched.length };
 }
 
@@ -242,6 +425,10 @@ async function checkOzonPointAvailability(input: {
   });
   // Only an explicit negative answer blocks the customer: /v1/order/checkout stays
   // the authoritative gate, so an unknown payload shape must not break checkout.
+  // Ozon сообщает об ограничениях пункта объектом error внутри results,
+  // а не флагом: раньше такие ответы молча считались «доступно».
+  const problem = ozonResultError(response);
+  if (problem) throw new Error(describeOzonError(problem));
   const denied = records(response).some((record) => {
     const sameId = text(record, ["delivery_point_id"]) === input.pointId;
     const unavailable = record.is_available === false || record.available === false
@@ -275,7 +462,12 @@ async function requestOzonCheckout(input: {
     throw new Error("Ozon не может доставить этот заказ в выбранный пункт выдачи. Выберите другой пункт.");
   }
   const priced = all.find((record) => "estimated_delivery_cost" in record || "estimated_delivery_days" in record);
-  if (!priced) throw new Error("Ozon не вернул расчёт стоимости доставки. Попробуйте позже.");
+  if (!priced) {
+    const problem = ozonResultError(response);
+    throw new Error(problem
+      ? describeOzonError(problem)
+      : "Ozon не вернул расчёт стоимости доставки. Попробуйте позже.");
+  }
   const deliveryKopecks = kopecks(priced.estimated_delivery_cost);
   const insuranceKopecks = kopecks(priced.estimated_insurance_cost);
   const deliveryPriceRubles = rublesUp(deliveryKopecks);
