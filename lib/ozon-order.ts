@@ -106,11 +106,23 @@ function rublesUp(valueInKopecks: number) {
   return Math.ceil(valueInKopecks / 100);
 }
 
+/**
+ * Ozon не считает доставку, если объявленная стоимость ниже 200 ₽:
+ * /v1/order/checkout отвечает DeliveryCalculationError при любых габаритах.
+ * Проверено перебором: 90 ₽ отклоняется, 200 ₽ и выше проходит.
+ *
+ * Объявленная стоимость — это оценка груза для страховки, а не сумма чека.
+ * Поднимаем её до минимума, чтобы мелкие заказы могли оформиться; покупатель
+ * платит столько же, доставка не меняется (92 ₽ во всём диапазоне 200–10 000 ₽).
+ */
+const OZON_MIN_DECLARED_VALUE_RUBLES = 200;
+
 function declaredValue(printPriceRubles: number) {
   if (!Number.isFinite(printPriceRubles) || printPriceRubles <= 0) {
     throw new Error("Не удалось определить стоимость заказа для доставки Ozon.");
   }
-  return { amount: printPriceRubles.toFixed(2), currency_code: "RUB" };
+  const declared = Math.max(printPriceRubles, OZON_MIN_DECLARED_VALUE_RUBLES);
+  return { amount: declared.toFixed(2), currency_code: "RUB" };
 }
 
 /**
@@ -577,14 +589,18 @@ async function requestOzonCheckout(input: {
   if (!priced) {
     const problem = ozonResultError(response);
     if (!problem) throw new Error("Ozon не вернул расчёт стоимости доставки. Попробуйте позже.");
-    // Отказ по конкретному пункту объясняем его же ограничениями.
-    const hint = problem.code === "DeliveryPointRestrictionsError" || problem.code === "DeliveryCalculationError"
-      ? await explainOzonPointRestrictions(
+    // Отказ по конкретному пункту объясняем его же ограничениями и минимумом Ozon.
+    let hint = "";
+    if (problem.code === "DeliveryPointRestrictionsError" || problem.code === "DeliveryCalculationError") {
+      hint = await explainOzonPointRestrictions(
         input.pointId,
         input.parcel,
         input.printPriceRubles,
-      )
-      : "";
+      );
+      if (!hint && input.printPriceRubles < OZON_MIN_DECLARED_VALUE_RUBLES) {
+        hint = `Ozon считает доставку только от ${OZON_MIN_DECLARED_VALUE_RUBLES} ₽ объявленной стоимости, а заказ на ${input.printPriceRubles} ₽.`;
+      }
+    }
     throw new Error(describeOzonError(problem, hint));
   }
   const deliveryKopecks = kopecks(priced.estimated_delivery_cost);
