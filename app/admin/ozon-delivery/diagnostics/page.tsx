@@ -49,7 +49,7 @@ const STATUS_MEANING: Record<string, string> = {
   approved: "Подтверждён к отгрузке: отправление принято в логистику Ozon. Следующий шаг — этикетка.",
   approving: "Подтверждение выполняется прямо сейчас.",
   approve_failed: "Ozon не подтвердил отправление. Причина в столбце «Ошибка», повтор — кнопкой ниже.",
-  approve_expired: "Срок отгрузки истёк до подтверждения. Заказ нужно переоформить или подтвердить в кабинете Ozon.",
+  approve_expired: "Подтверждение заблокировала устаревшая проверка срока. Нажмите «Подтвердить к отгрузке» ещё раз.",
 };
 
 function formatDate(value: Date | null) {
@@ -174,7 +174,7 @@ export default async function OzonDiagnosticsPage() {
                 <div><dt className="inline text-slate-500">Номер в Ozon: </dt><dd className="inline font-mono">{order.ozon_order_number ?? "—"}</dd></div>
                 <div><dt className="inline text-slate-500">Отправление: </dt><dd className="inline font-mono">{order.ozon_posting_number ?? "—"}</dd></div>
                 <div><dt className="inline text-slate-500">Создан в Ozon: </dt><dd className="inline">{formatDate(order.ozon_delivery_created_at)}</dd></div>
-                <div><dt className="inline text-slate-500">Отгрузить до: </dt><dd className="inline">{formatDate(order.ozon_cutoff_at)}</dd></div>
+                <div><dt className="inline text-slate-500">Плановая отгрузка: </dt><dd className="inline">{formatDate(order.ozon_cutoff_at)}</dd></div>
                 <div><dt className="inline text-slate-500">Подтверждён: </dt><dd className="inline">{formatDate(order.ozon_delivery_approved_at)}</dd></div>
                 <div><dt className="inline text-slate-500">ПВЗ: </dt><dd className="inline font-mono">{order.pickup_point_id ?? "—"}</dd></div>
                 <div><dt className="inline text-slate-500">Доставка оплачена: </dt><dd className="inline">{order.delivery_price ?? "—"} ₽</dd></div>

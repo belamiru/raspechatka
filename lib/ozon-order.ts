@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { getDb } from "@/lib/db";
 import { postOzonDeliveryApi, postOzonDeliveryApiRaw } from "@/lib/ozon-delivery";
 import { getOzonShipmentMethod } from "@/lib/ozon-shipment-method";
+import { nextOzonShipmentSlot, toOzonCutoff } from "@/lib/ozon-shipment-schedule";
 
 export type OzonDeliveryPoint = {
   id: string;
@@ -132,15 +133,6 @@ function declaredValue(printPriceRubles: number) {
  */
 export function freshRequestId() {
   return Math.floor(Math.random() * 2_000_000_000) + 1;
-}
-
-/** Ozon rejects cutoff_at in the past, so only a future value is worth sending. */
-function futureCutoff(value: string | null) {
-  if (!value) return null;
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) return null;
-  // Оставляем небольшой запас: пока запрос дойдёт, время не должно успеть истечь.
-  return parsed > Date.now() + 60_000 ? value : null;
 }
 
 type OzonResultError = { code: string; message: string };
@@ -570,12 +562,15 @@ async function requestOzonCheckout(input: {
   phone: string;
   printPriceRubles: number;
   parcel: OzonParcel;
+  /** Плановая отгрузка по нашему графику: от неё Ozon считает срок доставки. */
+  cutoffAt: string;
 }): Promise<OzonDeliveryQuote> {
   const response = await postOzonDeliveryApi("/v1/order/checkout", {
     recipient: { phone_number: toOzonPhoneNumber(input.phone) },
     postings: [{
       request_id: input.requestId,
       shipment_method_id: input.shipmentMethodId,
+      cutoff_at: input.cutoffAt,
       declared_value: declaredValue(input.printPriceRubles),
       dimensions: dimensions(input.parcel),
     }],
@@ -612,7 +607,8 @@ async function requestOzonCheckout(input: {
     insurancePriceRubles,
     priceRubles: deliveryPriceRubles + insurancePriceRubles,
     deliveryDays: integer(priced.estimated_delivery_days),
-    cutoffAt: text(priced, ["cutoff_at"]) || null,
+    // Ozon может уточнить время; если не вернул — остаётся наше.
+    cutoffAt: text(priced, ["cutoff_at"]) || input.cutoffAt,
   };
 }
 
@@ -641,6 +637,7 @@ export async function quoteOzonPickupDelivery(input: {
   return requestOzonCheckout({
     pointId: input.pointId, shipmentMethodId, requestId, phone: input.phone,
     printPriceRubles: input.printPriceRubles, parcel: input.parcel,
+    cutoffAt: toOzonCutoff(nextOzonShipmentSlot()),
   });
 }
 
@@ -814,15 +811,9 @@ export async function approveOzonDeliveryForPaidOrder(orderId: string) {
   try {
     const postingNumber = order.ozon_posting_number as string;
 
-    // Просроченный слот Ozon отвергнет валидацией, поэтому такой заказ уходит
-    // оператору, а не в бесконечный повтор заведомо неудачного запроса.
-    if (order.ozon_cutoff_at && new Date(order.ozon_cutoff_at).getTime() < Date.now()) {
-      throw new Error(
-        `Срок отгрузки истёк ${new Date(order.ozon_cutoff_at).toLocaleString("ru-RU")}. ` +
-          "Подтвердите заказ в кабинете Ozon или оформите его заново."
-      );
-    }
-
+    // Срок здесь не проверяем: cutoff_at — наш план сдачи посылки, а не
+    // крайний срок Ozon. Решение о подтверждении принимает Ozon, и его отказ
+    // попадёт в ozon_delivery_error с понятным текстом.
     const response = await postOzonDeliveryApi("/v1/posting/approve", {
       posting_numbers: [postingNumber],
     });
@@ -859,13 +850,10 @@ export async function approveOzonDeliveryForPaidOrder(orderId: string) {
     const message = cause instanceof Error
       ? cause.message.slice(0, 2000)
       : "Unknown Ozon approve error";
-    // Просроченный слот помечается отдельно: повторять его бессмысленно,
-    // заказ требует ручной обработки оператором.
-    const expired = message.includes("Срок отгрузки истёк");
     await db.query(`
-      UPDATE orders SET ozon_delivery_status = $1, ozon_delivery_error = $2, updated_at = NOW()
-      WHERE id = $3 AND ozon_delivery_status = 'approving'
-    `, [expired ? "approve_expired" : "approve_failed", message, order.id]);
+      UPDATE orders SET ozon_delivery_status = 'approve_failed', ozon_delivery_error = $1, updated_at = NOW()
+      WHERE id = $2 AND ozon_delivery_status = 'approving'
+    `, [message, order.id]);
     throw cause;
   }
 }
@@ -901,11 +889,13 @@ export async function createOzonDeliveryForPaidOrder(orderId: string) {
     // computed at checkout time, including its now-expired cutoff_at, and order/create
     // then failed with "Плановый момент отгрузки не может быть в прошлом".
     const requestId = freshRequestId();
+    // Плановая отгрузка считается заново в момент создания: если оплатили
+    // поздно вечером, посылка уйдёт в следующий день графика.
+    const cutoffAt = toOzonCutoff(nextOzonShipmentSlot());
     const quote = await requestOzonCheckout({
       pointId: order.pickup_point_id, shipmentMethodId, requestId,
-      phone: order.customer_phone, printPriceRubles, parcel,
+      phone: order.customer_phone, printPriceRubles, parcel, cutoffAt,
     });
-    const cutoffAt = futureCutoff(quote.cutoffAt);
     const paidDeliveryPrice = Number(order.delivery_price ?? 0);
     if (quote.priceRubles !== paidDeliveryPrice) {
       // Never ship on economics the customer did not pay for: leave it for an operator.
@@ -925,7 +915,7 @@ export async function createOzonDeliveryForPaidOrder(orderId: string) {
         description: `Печатная продукция, заказ ${order.order_number}`,
         declared_value: declaredValue(printPriceRubles),
         dimensions: dimensions(parcel),
-        ...(cutoffAt ? { cutoff_at: cutoffAt } : {}),
+        cutoff_at: cutoffAt,
       }],
     }, { "Idempotency-Key": order.ozon_delivery_idempotency_key });
     const ozonOrderNumber = records(response).map((record) => text(record, ["order_number"])).find(Boolean) ?? "";
@@ -933,9 +923,9 @@ export async function createOzonDeliveryForPaidOrder(orderId: string) {
     const postingNumber = records(response).map((record) => text(record, ["posting_number"])).find(Boolean) ?? null;
     await db.query(`
       UPDATE orders SET ozon_order_number = $1, ozon_posting_number = $2, ozon_delivery_status = 'created',
-        ozon_delivery_error = NULL, ozon_delivery_created_at = NOW(), updated_at = NOW()
+        ozon_delivery_error = NULL, ozon_delivery_created_at = NOW(), ozon_cutoff_at = $4, updated_at = NOW()
       WHERE id = $3 AND ozon_delivery_status = 'creating'
-    `, [ozonOrderNumber, postingNumber, order.id]);
+    `, [ozonOrderNumber, postingNumber, order.id, cutoffAt]);
     // Подтверждение к отгрузке — отдельный шаг: без него отправление не попадает
     // в логистику Ozon. Его сбой не должен отменять уже созданный заказ, поэтому
     // статус заказа остаётся 'created', а причина ложится в ozon_delivery_error.
