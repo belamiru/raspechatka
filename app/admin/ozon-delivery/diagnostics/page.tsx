@@ -54,7 +54,10 @@ const STATUS_MEANING: Record<string, string> = {
 
 function formatDate(value: Date | null) {
   if (!value) return "—";
-  return new Date(value).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" });
+  // Сервер работает в UTC: без явного пояса 19:30 по Москве показывалось как 16:30.
+  return new Date(value).toLocaleString("ru-RU", {
+    dateStyle: "short", timeStyle: "short", timeZone: "Europe/Moscow",
+  });
 }
 
 function statusTone(status: string | null) {

@@ -744,11 +744,18 @@ export async function getOzonLabelForOrder(orderId: string): Promise<OzonLabelFi
   }
   const postingNumber = order.ozon_posting_number;
 
-  const response = await postOzonDeliveryApiRaw(
-    "/v1/posting/label",
-    { posting_numbers: [postingNumber] },
-    { Accept: "application/pdf, image/png, application/json" },
-  );
+  // Формат запроса этикетки в документации не подтверждён: approve, например,
+  // принимает только posting_number. Если Ozon назовёт в ошибке другое поле,
+  // повторяем запрос с ним — один раз.
+  const headers = { Accept: "application/pdf, image/png, application/json" };
+  let response;
+  try {
+    response = await postOzonDeliveryApiRaw("/v1/posting/label", { posting_number: postingNumber }, headers);
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : "";
+    if (!/HTTP 400/.test(message) || !message.includes("posting_numbers")) throw cause;
+    response = await postOzonDeliveryApiRaw("/v1/posting/label", { posting_numbers: [postingNumber] }, headers);
+  }
 
   let file: { bytes: Uint8Array; format: NonNullable<ReturnType<typeof detectLabelFormat>> } | null = null;
   const direct = detectLabelFormat(response.bytes);
@@ -814,8 +821,10 @@ export async function approveOzonDeliveryForPaidOrder(orderId: string) {
     // Срок здесь не проверяем: cutoff_at — наш план сдачи посылки, а не
     // крайний срок Ozon. Решение о подтверждении принимает Ozon, и его отказ
     // попадёт в ozon_delivery_error с понятным текстом.
+    // Ozon ждёт одну строку posting_number, а не массив: на posting_numbers
+    // он отвечает 400 «missing required properties including: 'posting_number'».
     const response = await postOzonDeliveryApi("/v1/posting/approve", {
-      posting_numbers: [postingNumber],
+      posting_number: postingNumber,
     });
 
     // Ozon отвечает 200 и при ошибке по конкретному отправлению — читаем results.
