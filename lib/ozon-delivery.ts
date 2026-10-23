@@ -193,6 +193,49 @@ export async function postOzonDeliveryApi(path: string, body: unknown, extraHead
   return result as Record<string, unknown>;
 }
 
+export type OzonRawResponse = {
+  status: number;
+  contentType: string;
+  bytes: Uint8Array;
+  /** Разобранный JSON, если ответ — JSON; иначе null. */
+  json: unknown;
+};
+
+/**
+ * Как postOzonDeliveryApi, но ответ читается байтами, а не текстом.
+ * Нужен для этикеток: PDF, прочитанный через response.text(), необратимо
+ * портится, поэтому общий вызов для бинарных ответов не подходит.
+ */
+export async function postOzonDeliveryApiRaw(
+  path: string,
+  body: unknown,
+  extraHeaders?: Record<string, string>,
+): Promise<OzonRawResponse> {
+  if (!/^\/v1\/[a-z0-9-]+(?:\/[a-z0-9-]+)*$/.test(path)) {
+    throw new Error("Некорректный путь Ozon Delivery API.");
+  }
+  const accessToken = await getOzonDeliveryAccessToken();
+  const trace: OzonTrace = { statuses: [] };
+  const response = await postToOzon(
+    `${DELIVERY_API_ORIGIN}${path}`, body, `Bearer ${accessToken}`, trace, extraHeaders,
+  );
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
+  let json: unknown = null;
+  // JSON определяем и по заголовку, и по первому символу: Ozon не всегда его ставит.
+  if (contentType.includes("json") || bytes[0] === 0x7b || bytes[0] === 0x5b) {
+    try { json = JSON.parse(new TextDecoder().decode(bytes)); } catch { json = null; }
+  }
+  if (!response.ok) {
+    const summary = `Ozon ${path}: HTTP ${response.status}; content-type=${contentType || "нет"}; HTTP chain=${trace.statuses.join(" -> ")}.`;
+    const detail = json !== null
+      ? safeDiagnosticText(JSON.stringify(diagnosticBody(json)), accessToken)
+      : "Response body withheld (non-JSON).";
+    throw new Error(`${summary} ${detail}`);
+  }
+  return { status: response.status, contentType, bytes, json };
+}
+
 export function getOzonDeliveryConfiguration() {
   return {
     configured: Boolean(process.env.OZON_DELIVERY_CLIENT_ID?.trim() && process.env.OZON_DELIVERY_CLIENT_SECRET?.trim()),

@@ -23,6 +23,7 @@ type OzonOrderRow = {
   ozon_cutoff_at: Date | null;
   ozon_delivery_created_at: Date | null;
   ozon_delivery_approved_at: Date | null;
+  ozon_label_downloaded_at: Date | null;
   pickup_point_id: string | null;
   pickup_point_address: string | null;
   delivery_price: number | null;
@@ -92,7 +93,7 @@ export default async function OzonDiagnosticsPage() {
   const orders = await getDb().query<OzonOrderRow>(`
     SELECT id, order_number, customer_name, status, payment_status,
            ozon_delivery_status, ozon_order_number, ozon_posting_number,
-           ozon_delivery_error, ozon_cutoff_at, ozon_delivery_created_at, ozon_delivery_approved_at,
+           ozon_delivery_error, ozon_cutoff_at, ozon_delivery_created_at, ozon_delivery_approved_at, ozon_label_downloaded_at,
            pickup_point_id, pickup_point_address,
            delivery_price, ozon_delivery_price, created_at
     FROM orders
@@ -186,6 +187,19 @@ export default async function OzonDiagnosticsPage() {
               </div>}
 
               <OzonApproveButton orderId={order.id} status={order.ozon_delivery_status} />
+
+              {order.ozon_posting_number && <div className="mt-3 flex flex-wrap items-center gap-3">
+                {/* Обычная ссылка: файл скачивается, ошибка откроется текстом в новой вкладке. */}
+                <a href={`/api/admin/ozon-delivery/label?orderId=${order.id}`} target="_blank" rel="noopener"
+                  className="rounded-lg border border-blue-700 px-3 py-1.5 text-sm font-semibold text-blue-700">
+                  Скачать этикетку
+                </a>
+                <span className="text-slate-500">
+                  {order.ozon_label_downloaded_at
+                    ? `Скачана ${formatDate(order.ozon_label_downloaded_at)}`
+                    : "Ещё не скачивалась"}
+                </span>
+              </div>}
             </article>)}
           </div>}
     </section>

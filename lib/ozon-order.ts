@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "@/lib/db";
-import { postOzonDeliveryApi } from "@/lib/ozon-delivery";
+import { postOzonDeliveryApi, postOzonDeliveryApiRaw } from "@/lib/ozon-delivery";
 import { getOzonShipmentMethod } from "@/lib/ozon-shipment-method";
 
 export type OzonDeliveryPoint = {
@@ -658,6 +658,132 @@ type ClaimedOzonOrder = {
   package_height_mm: number;
   ozon_delivery_idempotency_key: string;
 };
+
+export type OzonLabelFile = {
+  /** Обычный ArrayBuffer: его без преобразований принимает Response. */
+  body: ArrayBuffer;
+  contentType: "application/pdf" | "image/png";
+  fileName: string;
+};
+
+/** Формат файла по сигнатуре, а не по заголовку: заголовку Ozon верить нельзя. */
+function detectLabelFormat(bytes: Uint8Array) {
+  if (bytes.length > 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+    return { contentType: "application/pdf" as const, extension: "pdf" };
+  }
+  if (bytes.length > 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return { contentType: "image/png" as const, extension: "png" };
+  }
+  return null;
+}
+
+const LABEL_BASE64_KEYS = ["file_content", "content", "label", "file", "data", "pdf", "label_content"];
+const LABEL_URL_KEYS = ["url", "file_url", "label_url", "link"];
+
+/** Хосты, с которых разрешено скачать этикетку по ссылке из ответа Ozon. */
+function isOzonFileHost(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:"
+      && (/(^|\.)ozon\.ru$/.test(url.hostname) || /(^|\.)ozone\.ru$/.test(url.hostname));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Этикетка внутри JSON: base64 в одном из известных полей или ссылка на файл.
+ * Формат ответа /v1/posting/label в документации описан неполно, поэтому
+ * принимаем только то, что по сигнатуре действительно PDF или PNG.
+ */
+async function extractLabelFromJson(json: unknown) {
+  for (const record of records(json)) {
+    for (const key of LABEL_BASE64_KEYS) {
+      const value = record[key];
+      if (typeof value !== "string" || value.length < 100) continue;
+      const base64 = value.replace(/^data:[^;]+;base64,/, "").replace(/\s+/g, "");
+      if (!/^[A-Za-z0-9+/]+=*$/.test(base64)) continue;
+      const bytes = new Uint8Array(Buffer.from(base64, "base64"));
+      const format = detectLabelFormat(bytes);
+      if (format) return { bytes, format };
+    }
+  }
+  for (const record of records(json)) {
+    for (const key of LABEL_URL_KEYS) {
+      const value = record[key];
+      if (typeof value !== "string" || !isOzonFileHost(value)) continue;
+      // redirect: "error" — иначе перенаправление увело бы запрос с разрешённого хоста.
+      const response = await fetch(value, { cache: "no-store", redirect: "error" });
+      if (!response.ok) continue;
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const format = detectLabelFormat(bytes);
+      if (format) return { bytes, format };
+    }
+  }
+  return null;
+}
+
+/** Имена полей ответа без значений: для диагностики неизвестного формата. */
+function describeJsonShape(json: unknown) {
+  const keys = new Set<string>();
+  for (const record of records(json)) for (const key of Object.keys(record)) keys.add(key);
+  return [...keys].slice(0, 30).join(", ") || "пусто";
+}
+
+/**
+ * POST /v1/posting/label — этикетка отправления для печати.
+ * Ozon отдаёт её только для подтверждённого отправления; если заказ ещё не
+ * подтверждён, это станет видно по ответу Ozon, а не по нашему статусу.
+ */
+export async function getOzonLabelForOrder(orderId: string): Promise<OzonLabelFile> {
+  const result = await getDb().query<{ order_number: string; ozon_posting_number: string | null }>(`
+    SELECT order_number, ozon_posting_number FROM orders
+    WHERE id = $1 AND fulfillment_method = 'ozon_pickup_point'
+  `, [orderId]);
+  const order = result.rows[0];
+  if (!order) throw new Error("Заказ с доставкой Ozon не найден.");
+  if (!order.ozon_posting_number) {
+    throw new Error("У заказа ещё нет номера отправления Ozon: заказ в Ozon не создан.");
+  }
+  const postingNumber = order.ozon_posting_number;
+
+  const response = await postOzonDeliveryApiRaw(
+    "/v1/posting/label",
+    { posting_numbers: [postingNumber] },
+    { Accept: "application/pdf, image/png, application/json" },
+  );
+
+  let file: { bytes: Uint8Array; format: NonNullable<ReturnType<typeof detectLabelFormat>> } | null = null;
+  const direct = detectLabelFormat(response.bytes);
+  if (direct) file = { bytes: response.bytes, format: direct };
+  else if (response.json !== null) file = await extractLabelFromJson(response.json);
+
+  if (!file) {
+    const problem = response.json !== null ? ozonResultError(response.json) : null;
+    if (problem) {
+      throw new Error(describeOzonError(problem,
+        "Этикетка доступна только для отправления, подтверждённого к отгрузке."));
+    }
+    throw new Error(
+      `Ozon вернул этикетку в неизвестном формате: content-type=${response.contentType || "нет"}, ` +
+      `поля ответа: ${response.json !== null ? describeJsonShape(response.json) : "не JSON"}. ` +
+      "Пришлите этот текст разработчику — по нему добавится разбор формата."
+    );
+  }
+
+  await getDb().query(
+    "UPDATE orders SET ozon_label_downloaded_at = NOW(), updated_at = NOW() WHERE id = $1",
+    [orderId],
+  );
+  const safeName = postingNumber.replace(/[^A-Za-z0-9_-]/g, "_");
+  const body = new ArrayBuffer(file.bytes.byteLength);
+  new Uint8Array(body).set(file.bytes);
+  return {
+    body,
+    contentType: file.format.contentType,
+    fileName: `ozon-label-${safeName}.${file.format.extension}`,
+  };
+}
 
 type ClaimedApprove = {
   id: string;
