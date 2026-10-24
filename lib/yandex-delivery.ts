@@ -76,8 +76,10 @@ export async function createYandexPickupDelivery({ orderNumber, pickupPointId, p
   orderNumber: string; pickupPointId: string; printPriceRubles: number; recipient: Recipient; package: Package;
 }) {
   const token = getToken();
-  const merchantId = process.env.YANDEX_DELIVERY_MERCHANT_ID?.trim();
-  if (!merchantId) throw new Error("Не задан YANDEX_DELIVERY_MERCHANT_ID для создания заказа Яндекс Доставки.");
+  // merchant_id нужен только при отдельных зарегистрированных мерчантах.
+  // Без них заказ создаётся от основного договора (подтверждено поддержкой).
+  // Неверный ID Яндекс отклоняет с «Merchant not found».
+  const merchantId = process.env.YANDEX_DELIVERY_MERCHANT_ID?.trim() || null;
   if (!validPickupPointId(pickupPointId)) throw new Error("Некорректный пункт выдачи.");
   if (!Number.isSafeInteger(printPriceRubles) || printPriceRubles < 0) throw new Error("Некорректная стоимость печати для заявки Яндекс Доставки.");
   validatePackage(parcel);
@@ -88,7 +90,7 @@ export async function createYandexPickupDelivery({ orderNumber, pickupPointId, p
       info: {
         // Stable merchant-side ID makes repeated T-Bank notifications idempotent in Yandex.
         operator_request_id: `print-${orderNumber}`.slice(0, 50),
-        merchant_id: merchantId,
+        ...(merchantId ? { merchant_id: merchantId } : {}),
         comment: `Оплаченный заказ ${orderNumber}`.slice(0, 500),
       },
       source: { platform_station: { platform_id: YANDEX_DELIVERY_SOURCE_PLATFORM_STATION_ID } },

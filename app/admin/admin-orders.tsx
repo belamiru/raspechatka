@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { YandexDeliveryStatus } from "@/components/yandex-delivery-status";
 
 type OrderStatus =
   | "awaiting_checkout"
@@ -44,6 +45,9 @@ type Order = {
   packageHeightMm: number | null;
   packageWeightGrams: number | null;
   physicalSheetCount: number | null;
+  yandexDeliveryStatus: string | null;
+  yandexDeliveryRequestId: string | null;
+  yandexDeliveryError: string | null;
   status: OrderStatus;
   createdAt: string;
   files: OrderFile[];
@@ -423,6 +427,13 @@ export default function AdminOrders({
                           <p>{order.pickupPointAddress ?? "Пункт ещё не выбран"}</p>
                           {order.pickupPointType && <p>{order.pickupPointType === "terminal" ? "Постамат" : "ПВЗ"}{order.pickupPointId ? ` · ID: ${order.pickupPointId}` : ""}</p>}
                           <p>{order.deliveryPrice === null ? "Стоимость доставки уточняется" : `Доставка: ${order.deliveryPrice} ₽`}</p>
+                          <YandexDeliveryStatus
+                            orderId={order.id}
+                            orderStatus={order.status}
+                            status={order.yandexDeliveryStatus}
+                            requestId={order.yandexDeliveryRequestId}
+                            error={order.yandexDeliveryError}
+                          />
                         </div>
                       ) : <p className="mt-2 text-sm text-slate-700">Самовывоз · бесплатно</p>}
                     </div>

@@ -24,6 +24,9 @@ type OrderRow = {
   package_height_mm: number | null;
   package_weight_grams: number | null;
   physical_sheet_count: number | null;
+  yandex_delivery_status: string | null;
+  yandex_delivery_request_id: string | null;
+  yandex_delivery_error: string | null;
   status: "awaiting_checkout" | "awaiting_payment" | "paid" | "new" | "in_progress" | "ready" | "completed" | "cancelled";
   created_at: Date;
 
@@ -74,6 +77,9 @@ export default async function AdminPage() {
       orders.package_height_mm,
       orders.package_weight_grams,
       orders.physical_sheet_count,
+      orders.yandex_delivery_status,
+      orders.yandex_delivery_request_id,
+      orders.yandex_delivery_error,
       orders.status,
       orders.created_at,
 
@@ -112,6 +118,9 @@ export default async function AdminPage() {
       packageHeightMm: number | null;
       packageWeightGrams: number | null;
       physicalSheetCount: number | null;
+      yandexDeliveryStatus: string | null;
+      yandexDeliveryRequestId: string | null;
+      yandexDeliveryError: string | null;
       status: "awaiting_checkout" | "awaiting_payment" | "paid" | "new" | "in_progress" | "ready" | "completed" | "cancelled";
       createdAt: string;
       files: {
@@ -151,6 +160,9 @@ export default async function AdminPage() {
         packageHeightMm: row.package_height_mm,
         packageWeightGrams: row.package_weight_grams,
         physicalSheetCount: row.physical_sheet_count,
+        yandexDeliveryStatus: row.yandex_delivery_status,
+        yandexDeliveryRequestId: row.yandex_delivery_request_id,
+        yandexDeliveryError: row.yandex_delivery_error,
         status: row.status,
         createdAt: row.created_at.toISOString(),
         files: [],

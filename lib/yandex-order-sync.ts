@@ -12,7 +12,7 @@ export async function createYandexDeliveryForPaidOrder(orderId: string) {
   const db = getDb();
   const claimed = await db.query<ClaimedOrder>(`
     UPDATE orders SET yandex_delivery_status = 'creating', yandex_delivery_error = NULL, updated_at = NOW()
-    WHERE id = $1 AND status = 'paid' AND fulfillment_method = 'yandex_pickup_point'
+    WHERE id = $1 AND status IN ('paid', 'in_progress', 'ready') AND fulfillment_method = 'yandex_pickup_point'
       AND yandex_delivery_request_id IS NULL AND COALESCE(yandex_delivery_status, '') <> 'creating'
     RETURNING id, order_number, pickup_point_id, customer_name, customer_phone, customer_email, print_price,
       package_weight_grams, package_width_mm, package_length_mm, package_height_mm
