@@ -19,3 +19,51 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.hero-section {
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-illustration-wrap {
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero-illustration {
+  width: 100%;
+  max-width: 620px;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 20px 24px rgb(37 99 235 / 0.12));
+}
+
+.hero-benefit-icon {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1769e8;
+  font-weight: 800;
+}
+
+.service-card {
+  min-height: 168px;
+}
+
+@media (max-width: 640px) {
+  .hero-illustration-wrap {
+    min-height: 180px;
+  }
+
+  .hero-benefit-icon {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+}

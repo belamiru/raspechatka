@@ -516,6 +516,14 @@ export default function Home() {
     }
   }
 
+  function ServiceIcon({ kind }: { kind: "color" | "photo" | "lamination" | "binding" }) {
+    const common = { width: 42, height: 42, viewBox: "0 0 48 48", fill: "none", "aria-hidden": true } as const;
+    if (kind === "color") return <svg {...common}><rect x="8" y="17" width="32" height="20" rx="3" fill="#f7c948" stroke="#17243f" strokeWidth="2"/><rect x="12" y="10" width="24" height="12" rx="2" fill="#67d3e8" stroke="#17243f" strokeWidth="2"/><path d="M17 27h14M17 32h9" stroke="#17243f" strokeWidth="2" strokeLinecap="round"/><rect x="19" y="37" width="10" height="5" rx="1" fill="#f58ca8" stroke="#17243f" strokeWidth="2"/></svg>;
+    if (kind === "photo") return <svg {...common}><rect x="8" y="12" width="27" height="25" rx="2" fill="#dbeafe" stroke="#17243f" strokeWidth="2" transform="rotate(-8 8 12)"/><rect x="14" y="17" width="27" height="25" rx="2" fill="#fff" stroke="#17243f" strokeWidth="2"/><circle cx="33" cy="23" r="3" fill="#f7c948" stroke="#17243f" strokeWidth="2"/><path d="m17 37 8-8 5 5 4-4 7 7" stroke="#1769e8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+    if (kind === "lamination") return <svg {...common}><path d="M12 9h18l8 8v22H12z" fill="#dbeafe" stroke="#17243f" strokeWidth="2"/><path d="M30 9v9h8" stroke="#17243f" strokeWidth="2"/><rect x="7" y="25" width="34" height="12" rx="3" fill="#67d3e8" stroke="#17243f" strokeWidth="2"/><path d="M14 31h20" stroke="#17243f" strokeWidth="2" strokeLinecap="round"/></svg>;
+    return <svg {...common}><rect x="13" y="8" width="25" height="32" rx="2" fill="#dbeafe" stroke="#17243f" strokeWidth="2"/><path d="M19 8v32M25 8v32M31 8v32" stroke="#1769e8" strokeWidth="1.5"/><path d="M16 16h17M16 22h17M16 28h17" stroke="#17243f" strokeWidth="1.5" strokeLinecap="round"/><circle cx="11" cy="14" r="2" fill="#f7c948"/><circle cx="11" cy="24" r="2" fill="#f7c948"/><circle cx="11" cy="34" r="2" fill="#f7c948"/></svg>;
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
@@ -549,23 +557,42 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="mx-auto max-w-6xl px-5 pb-16 pt-12 sm:pt-16">
-        <div className="mb-10 max-w-3xl">
-          <p className="mb-3 text-sm font-bold uppercase tracking-wider text-blue-700">
-            Печать документов онлайн
-          </p>
+      <section className="hero-section border-b border-blue-100 bg-gradient-to-br from-blue-50 via-white to-sky-100">
+        <div className="mx-auto grid max-w-6xl items-center gap-8 px-5 py-12 sm:py-16 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
+          <div className="max-w-2xl">
+            <p className="mb-4 inline-flex rounded-full bg-blue-100 px-3 py-1 text-xs font-bold uppercase tracking-wider text-blue-700">
+              Печать документов онлайн
+            </p>
 
-          <h1 className="text-4xl font-black tracking-tight sm:text-5xl">
-            Загрузите файлы — мы распечатаем их
-          </h1>
+            <h1 className="text-4xl font-black leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
+              Загрузите файлы — мы распечатаем их
+            </h1>
 
-          <p className="mt-5 text-lg leading-8 text-slate-600">
-            Чёрно-белая печать форматов A4 и A3. Добавьте документы или
-            изображения, выберите параметры, узнайте предварительную стоимость
-            и оформите заказ.
-          </p>
+            <p className="mt-5 max-w-xl text-lg leading-8 text-slate-600">
+              Чёрно-белая печать форматов A4 и A3. Добавьте документы или изображения,
+              выберите параметры, узнайте предварительную стоимость и оформите заказ.
+            </p>
+
+            <div className="mt-8 grid max-w-xl grid-cols-3 gap-3 text-sm text-slate-600">
+              <div className="flex items-center gap-2"><span className="hero-benefit-icon">⚡</span><span>Быстро<br className="sm:hidden" /> и удобно</span></div>
+              <div className="flex items-center gap-2"><span className="hero-benefit-icon">◇</span><span>Гарантия<br className="sm:hidden" /> качества</span></div>
+              <div className="flex items-center gap-2"><span className="hero-benefit-icon">▣</span><span>Безопасная<br className="sm:hidden" /> оплата</span></div>
+            </div>
+          </div>
+
+          <div className="hero-illustration-wrap" aria-hidden="true">
+            <img
+              src="/images/hero-printing-documents.png"
+              alt=""
+              className="hero-illustration"
+              width="800"
+              height="500"
+            />
+          </div>
         </div>
+      </section>
 
+      <section className="mx-auto max-w-6xl px-5 py-10 sm:py-12">
         <section
           aria-labelledby="other-services-heading"
           className="mb-10 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
@@ -597,34 +624,20 @@ export default function Home() {
             </a>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <a
-              href="/color-printing"
-              className="rounded-2xl bg-slate-50 p-4 font-semibold text-slate-800 transition hover:bg-blue-50 hover:text-blue-700"
-            >
-              Цветная печать
-            </a>
-
-            <a
-              href="/photo-printing"
-              className="rounded-2xl bg-slate-50 p-4 font-semibold text-slate-800 transition hover:bg-blue-50 hover:text-blue-700"
-            >
-              Фотопечать
-            </a>
-
-            <a
-              href="/lamination"
-              className="rounded-2xl bg-slate-50 p-4 font-semibold text-slate-800 transition hover:bg-blue-50 hover:text-blue-700"
-            >
-              Ламинация
-            </a>
-
-            <a
-              href="/metal-binding"
-              className="rounded-2xl bg-slate-50 p-4 font-semibold text-slate-800 transition hover:bg-blue-50 hover:text-blue-700"
-            >
-              Переплёт документов
-            </a>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              ["/color-printing", "color", "Цветная печать"],
+              ["/photo-printing", "photo", "Фотопечать"],
+              ["/lamination", "lamination", "Ламинация"],
+              ["/metal-binding", "binding", "Переплёт документов"],
+            ].map(([href, kind, label]) => (
+              <a key={href} href={href} className="service-card group rounded-2xl border border-slate-200 bg-white p-5 transition hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg">
+                <span className="service-icon flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 transition group-hover:bg-blue-100">
+                  <ServiceIcon kind={kind as "color" | "photo" | "lamination" | "binding"} />
+                </span>
+                <span className="mt-5 block text-lg font-bold text-slate-800 group-hover:text-blue-700">{label}</span>
+              </a>
+            ))}
           </div>
         </section>
 
