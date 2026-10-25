@@ -582,7 +582,7 @@ export default function Home() {
 
           <div className="hero-illustration-wrap" aria-hidden="true">
             <img
-              src="/images/hero-printing-documents.png"
+              src="/images/hero-printing-documents.webp"
               alt=""
               className="hero-illustration"
               width="800"
