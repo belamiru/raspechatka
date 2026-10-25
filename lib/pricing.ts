@@ -135,10 +135,12 @@ export function getPrintPrice({
   };
 }
 
-export type PrintColorMode = "black-and-white" | "color" | "solid-color";
-export type PagePrintOption = { paperFormat: PaperFormat; colorMode: PrintColorMode };
+export type PrintColorMode = "black-and-white" | "color";
+/** Old orders could retain this value; it is normalized to ordinary color. */
+type LegacyPrintColorMode = PrintColorMode | "solid-color";
+export type PagePrintOption = { paperFormat: PaperFormat; colorMode: LegacyPrintColorMode };
 
-type ColorPriceTier = PriceTier & { colorA4: number; solidColorA4: number };
+type ColorPriceTier = PriceTier & { colorA4: number };
 
 /*
  * All print categories use the same volume breaks as black-and-white printing.
@@ -146,12 +148,12 @@ type ColorPriceTier = PriceTier & { colorA4: number; solidColorA4: number };
  * PRICE_TIERS and the public tables on the home page.
  */
 const COLOR_PRICE_TIERS: ColorPriceTier[] = [
-  { from: 1, to: 10, a4OneSidedPrice: 20, colorA4: 60, solidColorA4: 120, label: "1–10 страниц" },
-  { from: 11, to: 25, a4OneSidedPrice: 18, colorA4: 55, solidColorA4: 110, label: "11–25 страниц" },
-  { from: 26, to: 75, a4OneSidedPrice: 16, colorA4: 50, solidColorA4: 100, label: "26–75 страниц" },
-  { from: 76, to: 200, a4OneSidedPrice: 14, colorA4: 45, solidColorA4: 90, label: "76–200 страниц" },
-  { from: 201, to: 500, a4OneSidedPrice: 11, colorA4: 40, solidColorA4: 80, label: "201–500 страниц" },
-  { from: 501, to: null, a4OneSidedPrice: 8, colorA4: 30, solidColorA4: 60, label: "от 501 страницы" },
+  { from: 1, to: 10, a4OneSidedPrice: 20, colorA4: 40, label: "1–10 страниц" },
+  { from: 11, to: 25, a4OneSidedPrice: 18, colorA4: 36, label: "11–25 страниц" },
+  { from: 26, to: 75, a4OneSidedPrice: 16, colorA4: 32, label: "26–75 страниц" },
+  { from: 76, to: 200, a4OneSidedPrice: 14, colorA4: 28, label: "76–200 страниц" },
+  { from: 201, to: 500, a4OneSidedPrice: 11, colorA4: 22, label: "201–500 страниц" },
+  { from: 501, to: null, a4OneSidedPrice: 8, colorA4: 16, label: "от 501 страницы" },
 ];
 
 /** Calculates an item with per-page format and colour categories. */
@@ -165,7 +167,7 @@ export function getPrintPriceForPages({ pageOptions, printSides, copies }: {
   const quantity = printablePages * validCopies;
   const tier = COLOR_PRICE_TIERS.find((item) => item.to === null || (quantity >= item.from && quantity <= item.to)) ?? COLOR_PRICE_TIERS[0];
   const priceForPage = ({ paperFormat, colorMode }: PagePrintOption) => {
-    const a4Price = colorMode === "solid-color" ? tier.solidColorA4 : colorMode === "color" ? tier.colorA4 : tier.a4OneSidedPrice;
+    const a4Price = colorMode === "black-and-white" ? tier.a4OneSidedPrice : tier.colorA4;
     return a4Price * (paperFormat === "A3" ? 2 : 1);
   };
   const totalPrice = pageOptions.reduce((total, page) => total + priceForPage(page), 0) * validCopies;

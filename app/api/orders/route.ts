@@ -43,7 +43,7 @@ type SubmittedOrderItem = {
 type SubmittedFileSettings = {
   fileId: string;
   paperFormat: "A4" | "A3";
-  colorMode: "black-and-white" | "color" | "solid-color";
+  colorMode: "black-and-white" | "color";
   copies: number;
   printSides: "one-sided" | "two-sided";
   pageOverrides: Record<number, PagePrintOverride>;
@@ -218,7 +218,7 @@ function parseFileSettings(
 
     const paperFormat = (defaults as Record<string, unknown>).paperFormat;
     const colorMode = (defaults as Record<string, unknown>).colorMode;
-    if ((paperFormat !== "A4" && paperFormat !== "A3") || !["black-and-white", "color", "solid-color"].includes(String(colorMode))) {
+    if ((paperFormat !== "A4" && paperFormat !== "A3") || !["black-and-white", "color"].includes(String(colorMode))) {
       return { valid: false, error: "Выбраны некорректные настройки печати." };
     }
 
@@ -235,10 +235,10 @@ function parseFileSettings(
       const override = rawOverride as Record<string, unknown>;
       const pageFormat = override.paperFormat;
       const pageColorMode = override.colorMode;
-      if (override.pageNumber !== pageNumber || (override.included !== undefined && typeof override.included !== "boolean") || (pageFormat !== undefined && pageFormat !== "A4" && pageFormat !== "A3") || (pageColorMode !== undefined && !["black-and-white", "color", "solid-color"].includes(String(pageColorMode)))) {
+      if (override.pageNumber !== pageNumber || (override.included !== undefined && typeof override.included !== "boolean") || (pageFormat !== undefined && pageFormat !== "A4" && pageFormat !== "A3") || (pageColorMode !== undefined && !["black-and-white", "color"].includes(String(pageColorMode)))) {
         return { valid: false, error: "Некорректные настройки страниц." };
       }
-      pageOverrides[pageNumber] = { pageNumber, ...(override.included === false ? { included: false } : {}), ...(pageFormat ? { paperFormat: pageFormat } : {}), ...(pageColorMode ? { colorMode: pageColorMode as "black-and-white" | "color" | "solid-color" } : {}) };
+      pageOverrides[pageNumber] = { pageNumber, ...(override.included === false ? { included: false } : {}), ...(pageFormat ? { paperFormat: pageFormat } : {}), ...(pageColorMode ? { colorMode: pageColorMode as "black-and-white" | "color" } : {}) };
     }
 
     if (
@@ -265,7 +265,7 @@ function parseFileSettings(
     settings.push({
       fileId,
       paperFormat: paperFormat as "A4" | "A3",
-      colorMode: colorMode as "black-and-white" | "color" | "solid-color",
+      colorMode: colorMode as "black-and-white" | "color",
       copies,
       printSides,
       pageOverrides,

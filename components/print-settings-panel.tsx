@@ -46,7 +46,7 @@ export function PrintSettingsPanel({
           Параметры печати
         </p>
 
-        <h2 className="mt-2 text-xl font-bold text-slate-900">
+        <h2 className="mt-2 text-xl min-w-0 break-anywhere font-bold text-slate-900">
           Выберите файл
         </h2>
 
@@ -107,7 +107,7 @@ export function PrintSettingsPanel({
             Параметры печати
           </p>
 
-          <h2 className="mt-2 text-xl font-bold text-slate-900">
+          <h2 className="mt-2 text-xl min-w-0 break-anywhere font-bold text-slate-900">
             Настройка файла
           </h2>
         </div>
@@ -119,7 +119,7 @@ export function PrintSettingsPanel({
 
       <div className="mt-5 rounded-2xl bg-slate-50 p-4">
         <p
-          className="truncate font-bold text-slate-900"
+          className="truncate min-w-0 break-anywhere font-bold text-slate-900"
           title={selectedFile.file.name}
         >
           {selectedFile.file.name}
@@ -176,12 +176,12 @@ export function PrintSettingsPanel({
         <div>
           <p className="text-sm font-bold text-slate-800">Категория печати</p>
           <div className="mt-3 grid gap-2">
-            {([ ["black-and-white", "Чёрно-белая"], ["color", "Цветная"], ["solid-color", "Цветная — сплошная заливка"] ] as const).map(([colorMode, label]) => {
+            {([ ["black-and-white", "Чёрно-белая"], ["color", "Цветная"] ] as const).map(([colorMode, label]) => {
               const isSelected = settings.defaults.colorMode === colorMode;
               return <button key={colorMode} type="button" onClick={() => changeSettings({ defaults: { ...settings.defaults, colorMode } })} aria-pressed={isSelected} className={`rounded-xl border px-4 py-3 text-left text-sm font-bold transition ${isSelected ? "border-blue-700 bg-blue-700 text-white" : "border-slate-300 bg-white text-slate-700 hover:border-blue-400"}`}>{label}</button>;
             })}
           </div>
-          <p className="mt-2 text-xs leading-5 text-slate-500">Выберите «сплошная заливка» для страниц с плотным цветным фоном. Категорию можно изменить отдельно для страниц в предпросмотре.</p>
+          <p className="mt-2 text-xs leading-5 text-slate-500">Категорию можно изменить отдельно для страниц в предпросмотре.</p>
         </div>
 
         <div>
@@ -200,7 +200,7 @@ export function PrintSettingsPanel({
               −
             </button>
 
-            <span className="flex h-12 flex-1 items-center justify-center text-base font-bold text-slate-900">
+            <span className="flex h-12 flex-1 items-center justify-center text-base min-w-0 break-anywhere font-bold text-slate-900">
               {settings.copies}
             </span>
 

@@ -100,8 +100,7 @@ function getFileSettingsSummary(item: OrderFileListItem) {
   const printable = getPrintablePageCount(item.pageCount ?? 0, settings);
   const a3Pages = getPagesWithFormat(settings, "A3");
   const colorPages = getPagesWithColorMode(settings, "color");
-  const solidColorPages = getPagesWithColorMode(settings, "solid-color");
-  return `${settings.defaults.paperFormat} · ${settings.copies} ${settings.copies === 1 ? "копия" : "копии"} · ${getPrintSidesLabel(printSides)}${excluded.length ? ` · печатать ${printable} из ${item.pageCount ?? 0} стр.` : ""}${a3Pages.length ? ` · A3: стр. ${a3Pages.join(", ")}` : ""}${colorPages.length ? ` · Цвет: стр. ${colorPages.join(", ")}` : ""}${solidColorPages.length ? ` · Заливка: стр. ${solidColorPages.join(", ")}` : ""}`;
+  return `${settings.defaults.paperFormat} · ${settings.copies} ${settings.copies === 1 ? "копия" : "копии"} · ${getPrintSidesLabel(printSides)}${excluded.length ? ` · печатать ${printable} из ${item.pageCount ?? 0} стр.` : ""}${a3Pages.length ? ` · A3: стр. ${a3Pages.join(", ")}` : ""}${colorPages.length ? ` · Цвет: стр. ${colorPages.join(", ")}` : ""}`;
 }
 
 export function OrderFileList({
@@ -188,7 +187,7 @@ export function OrderFileList({
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p
-                      className="max-w-full truncate font-semibold text-slate-800"
+                      className="min-w-0 max-w-full flex-1 basis-40 truncate font-semibold text-slate-800"
                       title={item.file.name}
                     >
                       {item.file.name}

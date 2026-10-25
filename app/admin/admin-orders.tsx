@@ -557,7 +557,6 @@ export default function AdminOrders({
                                 </p>
                               )}
                               {getColorPages(file, "color").length > 0 && <p className="mt-1 text-sm font-bold text-blue-800">Цветные: стр. {getColorPages(file, "color").join(", ")}</p>}
-                              {getColorPages(file, "solid-color").length > 0 && <p className="mt-1 text-sm font-bold text-fuchsia-800">Сплошная заливка: стр. {getColorPages(file, "solid-color").join(", ")}</p>}
                             </div>
 
                             {file.diskPath ? (

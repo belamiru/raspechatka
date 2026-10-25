@@ -67,3 +67,8 @@ body {
     height: 1.75rem;
   }
 }
+
+
+/* Do not let long file names expand the mobile viewport. */
+.break-anywhere { overflow-wrap: anywhere; word-break: break-word; }
+@media (max-width: 1023px) { #order { scroll-margin-top: 1rem; } }

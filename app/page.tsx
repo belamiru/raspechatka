@@ -20,7 +20,7 @@ import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageOpt
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
 
 
-type PriceTab = "black-and-white" | "color" | "solid-color";
+type PriceTab = "black-and-white" | "color";
 
 type PriceTable = {
   label: string;
@@ -53,32 +53,18 @@ const PRICE_TABLES: Record<PriceTab, PriceTable> = {
       "Для документов, презентаций, таблиц, графиков и макетов с обычной цветной насыщенностью. Для A3 цена ×2.",
     accent: "violet",
     tiers: [
-      { quantity: "1–10", a4: 60 },
-      { quantity: "11–25", a4: 55 },
-      { quantity: "26–75", a4: 50 },
-      { quantity: "76–200", a4: 45 },
-      { quantity: "201–500", a4: 40 },
-      { quantity: "От 501", a4: 30 },
+      { quantity: "1–10", a4: 40 },
+      { quantity: "11–25", a4: 36 },
+      { quantity: "26–75", a4: 32 },
+      { quantity: "76–200", a4: 28 },
+      { quantity: "201–500", a4: 22 },
+      { quantity: "От 501", a4: 16 },
     ],
   },
-  "solid-color": {
-    label: "Цветная печать — сплошная заливка",
-    shortLabel: "Сплошная заливка",
-    description:
-      "Для макетов с плотным цветным фоном, крупными фотографиями и насыщенными рекламными изображениями. Для A3 цена ×2.",
-    accent: "fuchsia",
-    tiers: [
-      { quantity: "1–10", a4: 120 },
-      { quantity: "11–25", a4: 110 },
-      { quantity: "26–75", a4: 100 },
-      { quantity: "76–200", a4: 90 },
-      { quantity: "201–500", a4: 80 },
-      { quantity: "От 501", a4: 60 },
-    ],
-  },
+
 };
 
-const PRICE_TABS: PriceTab[] = ["black-and-white", "color", "solid-color"];
+const PRICE_TABS: PriceTab[] = ["black-and-white", "color"];
 
 function makeFileId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -527,7 +513,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4">
           <a
             href="/"
             className="text-xl font-black tracking-tight text-blue-700"
@@ -558,7 +544,7 @@ export default function Home() {
       </header>
 
       <section className="hero-section border-b border-blue-100 bg-gradient-to-br from-blue-50 via-white to-sky-100">
-        <div className="mx-auto grid max-w-6xl items-center gap-8 px-5 py-12 sm:py-16 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
+        <div className="mx-auto grid max-w-7xl items-center gap-8 px-5 py-12 sm:py-16 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
           <div className="max-w-2xl">
             <p className="mb-4 inline-flex rounded-full bg-blue-100 px-3 py-1 text-xs font-bold uppercase tracking-wider text-blue-700">
               Печать документов онлайн
@@ -592,7 +578,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-5 py-10 sm:py-12">
+      <section className="mx-auto max-w-7xl px-5 py-10 sm:py-12">
         <section
           aria-labelledby="other-services-heading"
           className="mb-10 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
@@ -643,7 +629,7 @@ export default function Home() {
 
         <form
           onSubmit={handleSubmit}
-          className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]"
+          className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]"
         >
           <div
             aria-hidden="true"
@@ -838,102 +824,9 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="mt-8 border-t border-slate-100 pt-8">
-              <h2 className="text-2xl font-bold">3. Подтвердите условия</h2>
-
-              <div className="mt-5 space-y-4">
-                <label className="flex cursor-pointer items-start gap-3 text-sm leading-6 text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={personalDataConsent}
-                    onChange={(event) =>
-                      setPersonalDataConsent(event.target.checked)
-                    }
-                    className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
-                  />
-
-                  <span>
-                    Я даю согласие на обработку персональных данных в
-                    соответствии с{" "}
-                    <a
-                      href="/personal-data-consent"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-semibold text-blue-700 underline"
-                    >
-                      Согласием
-                    </a>{" "}
-                    и{" "}
-                    <a
-                      href="/privacy"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-semibold text-blue-700 underline"
-                    >
-                      Политикой обработки персональных данных
-                    </a>
-                    .
-                  </span>
-                </label>
-
-                <label className="flex cursor-pointer items-start gap-3 text-sm leading-6 text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={offerAccepted}
-                    onChange={(event) =>
-                      setOfferAccepted(event.target.checked)
-                    }
-                    className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
-                  />
-
-                  <span>
-                    Я принимаю условия{" "}
-                    <a
-                      href="/offer"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-semibold text-blue-700 underline"
-                    >
-                      Публичной оферты
-                    </a>
-                    .
-                  </span>
-                </label>
-
-                <label className="flex cursor-pointer items-start gap-3 text-sm leading-6 text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={fileRulesAccepted}
-                    onChange={(event) =>
-                      setFileRulesAccepted(event.target.checked)
-                    }
-                    className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-700 focus:ring-blue-600"
-                  />
-
-                  <span>
-                    Я ознакомился(ась) и согласен(на) с{" "}
-                    <a
-                      href="/file-rules"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-semibold text-blue-700 underline"
-                    >
-                      Правилами загрузки и хранения файлов
-                    </a>
-                    .
-                  </span>
-                </label>
-              </div>
-
-              <p className="mt-4 text-xs leading-5 text-slate-500">
-                Предварительная стоимость может измениться после проверки файла
-                сотрудником. Печать по изменённой стоимости начнётся только
-                после вашего подтверждения.
-              </p>
-            </div>
           </section>
 
-            <div className="hidden min-w-0 space-y-6 lg:sticky lg:top-6 lg:block lg:self-start">
+            <div className="min-w-0 space-y-6 lg:sticky lg:top-6 lg:self-start">
             <PrintSettingsPanel
               selectedFile={selectedFile}
               selectedFilePrice={selectedFilePrice}
@@ -1033,6 +926,12 @@ export default function Home() {
                 </p>
               </div>
             )}
+
+            <div className="mt-7 space-y-3 border-t border-white/15 pt-5 text-sm text-slate-200">
+              <label className="flex cursor-pointer gap-3 leading-5"><input type="checkbox" checked={personalDataConsent} onChange={(event) => setPersonalDataConsent(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300" /><span>Согласен на <a className="underline underline-offset-2 hover:text-white" href="/personal-data-consent" target="_blank" rel="noreferrer">обработку персональных данных</a>.</span></label>
+              <label className="flex cursor-pointer gap-3 leading-5"><input type="checkbox" checked={offerAccepted} onChange={(event) => setOfferAccepted(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300" /><span>Принимаю условия <a className="underline underline-offset-2 hover:text-white" href="/offer" target="_blank" rel="noreferrer">публичной оферты</a>.</span></label>
+              <label className="flex cursor-pointer gap-3 leading-5"><input type="checkbox" checked={fileRulesAccepted} onChange={(event) => setFileRulesAccepted(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300" /><span>Ознакомился с <a className="underline underline-offset-2 hover:text-white" href="/file-rules" target="_blank" rel="noreferrer">требованиями к файлам</a>.</span></label>
+            </div>
 
             <button
               type="submit"
