@@ -14,6 +14,7 @@ import {
   validateClientFile,
 } from "@/lib/client-file-analysis";
 import { SiteFooter } from "@/components/site-footer";
+import { SiteHeader } from "@/components/site-header";
 import { reachMetrikaGoal } from "@/lib/metrika";
 import { getPrintPriceForPages } from "@/lib/pricing";
 import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageOptions } from "@/lib/print-settings";
@@ -512,36 +513,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4">
-          <a
-            href="/"
-            className="text-xl font-black tracking-tight text-blue-700"
-          >
-            РАСПЕЧАТКА
-          </a>
-
-          <nav className="hidden items-center gap-5 text-sm sm:flex">
-            <a
-              href="/services"
-              className="font-semibold text-slate-600 transition hover:text-blue-700"
-            >
-              Услуги
-            </a>
-
-            <span className="text-slate-500">
-              Чёрно-белая печать документов в Воронеже
-            </span>
-          </nav>
-
-          <a
-            href="#order"
-            className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
-          >
-            Оформить заказ
-          </a>
-        </div>
-      </header>
+      <SiteHeader />
 
       <section className="hero-section border-b border-blue-100 bg-gradient-to-br from-blue-50 via-white to-sky-100">
         <div className="mx-auto grid max-w-7xl items-center gap-8 px-5 py-12 sm:py-16 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
@@ -550,13 +522,12 @@ export default function Home() {
               Печать документов онлайн
             </p>
 
-            <h1 className="text-4xl font-black leading-tight tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
-              Загрузите файлы — мы распечатаем их
+            <h1 className="text-3xl font-black leading-tight tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">
+              Печать документов, фото и плакатов с доставкой в любой регион онлайн
             </h1>
 
             <p className="mt-5 max-w-xl text-lg leading-8 text-slate-600">
-              Чёрно-белая печать форматов A4 и A3. Добавьте документы или изображения,
-              выберите параметры, узнайте предварительную стоимость и оформите заказ.
+              Загрузите файл, выберите параметры и сразу увидите цену. Заберёте сегодня или закажете доставку.
             </p>
 
             <div className="mt-8 grid max-w-xl grid-cols-3 gap-3 text-sm text-slate-600">
@@ -648,7 +619,7 @@ export default function Home() {
             </label>
           </div>
 
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
+          <section id="upload" className="scroll-mt-24 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
             <h2 className="text-2xl font-bold">1. Загрузите файлы</h2>
 
             <p className="mt-2 text-sm leading-6 text-slate-500">
@@ -724,7 +695,7 @@ export default function Home() {
             )}
 
             <div className="mt-8 border-t border-slate-100 pt-8">
-              <h2 className="text-2xl font-bold">2. Стоимость печати</h2>
+              <h2 id="prices" className="scroll-mt-24 text-2xl font-bold">2. Стоимость печати</h2>
 
               <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
                 <div
@@ -956,6 +927,48 @@ export default function Home() {
             </aside>
           </div>
         </form>
+      </section>
+
+      <section id="how-to-order" className="scroll-mt-24 mx-auto max-w-7xl px-5 pb-6">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <h2 className="text-2xl font-bold">Как заказать</h2>
+          <ol className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              ["Загрузите файлы", "До 8 файлов за заказ: PDF, Word, Excel, PowerPoint, JPG и PNG."],
+              ["Выберите параметры", "Формат, цвет, стороны и количество копий. Цена пересчитывается сразу."],
+              ["Оформите заказ", "Укажите контакты, способ получения и оплатите онлайн."],
+              ["Получите готовое", "Заберите в Воронеже или закажите доставку в пункт выдачи."],
+            ].map(([title, text], index) => (
+              <li key={title} className="rounded-2xl bg-slate-50 p-4">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-700 text-sm font-bold text-white">
+                  {index + 1}
+                </span>
+                <p className="mt-3 font-bold text-slate-900">{title}</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">{text}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      <section id="delivery" className="scroll-mt-24 mx-auto max-w-7xl px-5 pb-12">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <h2 className="text-2xl font-bold">Доставка</h2>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="font-bold text-slate-900">Самовывоз в Воронеже</p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                ул. Шукшина, д. 21, офис 8. Пн–Пт: 10:00–18:30. Бесплатно.
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="font-bold text-slate-900">Доставка в пункт выдачи</p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Выберите пункт выдачи на карте при оформлении заказа. Стоимость и срок доставки рассчитываются автоматически.
+              </p>
+            </div>
+          </div>
+        </div>
       </section>
 
       <SiteFooter />

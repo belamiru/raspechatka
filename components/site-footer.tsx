@@ -58,7 +58,7 @@ export function SiteFooter() {
           </nav>
         </div>
 
-        <div>
+        <div id="contacts" className="scroll-mt-24">
           <p className="text-sm font-bold text-slate-900">Контакты</p>
 
           <div className="mt-3 space-y-2 text-sm text-slate-600">
