@@ -54,16 +54,7 @@ function TelegramIcon() {
 }
 
 function MaxIcon() {
-  // Официальный знак мессенджера Max не подключался: нейтральный пузырь чата.
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
-      <path
-        d="M12 3C7 3 3 6.6 3 11c0 2.4 1.2 4.5 3.1 6L5.5 21l3.9-2c.8.2 1.7.3 2.6.3 5 0 9-3.6 9-8S17 3 12 3Z"
-        fill="currentColor"
-      />
-      <path d="M8 13V9.5l2 2.5 2-2.5V13m2.5 0V9.5h2.2" stroke="#fff" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+  return <img src="/max-logo.svg" width="20" height="20" alt="" aria-hidden="true" />;
 }
 
 function PhoneIcon() {
