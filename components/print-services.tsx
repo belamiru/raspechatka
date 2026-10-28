@@ -6,7 +6,7 @@ type ServiceCardData = {
   price: string;
   href: string;
   tone: "slate" | "blue" | "amber" | "violet" | "emerald" | "sky";
-  icon: React.ReactNode;
+  image: string;
 };
 
 const cardTones: Record<ServiceCardData["tone"], string> = {
@@ -18,66 +18,6 @@ const cardTones: Record<ServiceCardData["tone"], string> = {
   sky: "bg-sky-50 text-sky-600",
 };
 
-function SheetIcon() {
-  return (
-    <svg viewBox="0 0 64 64" width="72" height="72" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M16 8h20l12 12v36H16z" />
-      <path d="M36 8v12h12M22 30h20M22 38h20M22 46h12" />
-    </svg>
-  );
-}
-
-function ColorSheetIcon() {
-  return (
-    <svg viewBox="0 0 64 64" width="72" height="72" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 10h24l12 12v32H14z" />
-      <path d="M38 10v12h12" />
-      <circle cx="26" cy="32" r="6" fill="currentColor" stroke="none" opacity=".75" />
-      <path d="M36 26h8M36 34h8M20 46h24" />
-    </svg>
-  );
-}
-
-function PhotoIcon() {
-  return (
-    <svg viewBox="0 0 64 64" width="72" height="72" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="10" y="14" width="34" height="26" rx="2" transform="rotate(-6 10 14)" />
-      <rect x="20" y="22" width="34" height="26" rx="2" fill="none" />
-      <circle cx="46" cy="30" r="3" />
-      <path d="m24 44 8-8 5 5 4-4 5 5" />
-    </svg>
-  );
-}
-
-function PosterIcon() {
-  return (
-    <svg viewBox="0 0 64 64" width="72" height="72" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="12" y="8" width="40" height="48" rx="2" />
-      <circle cx="32" cy="28" r="10" fill="currentColor" stroke="none" opacity=".6" />
-      <path d="M18 46h28" />
-    </svg>
-  );
-}
-
-function LaminationIcon() {
-  return (
-    <svg viewBox="0 0 64 64" width="72" height="72" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="10" y="20" width="44" height="24" rx="4" />
-      <path d="M10 26h44M18 38h28" />
-    </svg>
-  );
-}
-
-function BindingIcon() {
-  return (
-    <svg viewBox="0 0 64 64" width="72" height="72" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="16" y="10" width="36" height="44" rx="2" />
-      <path d="M12 10v44" />
-      <path d="M12 16h6M12 24h6M12 32h6M12 40h6M12 48h6" />
-    </svg>
-  );
-}
-
 const SERVICES: ServiceCardData[] = [
   {
     title: "Чёрно-белая печать",
@@ -85,7 +25,7 @@ const SERVICES: ServiceCardData[] = [
     price: "от 8 ₽",
     href: "/#upload",
     tone: "slate",
-    icon: <SheetIcon />,
+    image: "/images/services/black-white.webp",
   },
   {
     title: "Цветная печать",
@@ -93,7 +33,7 @@ const SERVICES: ServiceCardData[] = [
     price: "от 20 ₽",
     href: "/color-printing",
     tone: "blue",
-    icon: <ColorSheetIcon />,
+    image: "/images/services/color.webp",
   },
   {
     title: "Фотопечать",
@@ -101,7 +41,7 @@ const SERVICES: ServiceCardData[] = [
     price: "от 15 ₽",
     href: "/photo-printing",
     tone: "amber",
-    icon: <PhotoIcon />,
+    image: "/images/services/photo.webp",
   },
   {
     title: "Плакаты и чертежи",
@@ -109,7 +49,7 @@ const SERVICES: ServiceCardData[] = [
     price: "от 150 ₽",
     href: "/color-printing",
     tone: "violet",
-    icon: <PosterIcon />,
+    image: "/images/services/posters.webp",
   },
   {
     title: "Ламинация",
@@ -117,7 +57,7 @@ const SERVICES: ServiceCardData[] = [
     price: "от 80 ₽",
     href: "/lamination",
     tone: "emerald",
-    icon: <LaminationIcon />,
+    image: "/images/services/lamination.webp",
   },
   {
     title: "Переплёт на пружину",
@@ -125,7 +65,7 @@ const SERVICES: ServiceCardData[] = [
     price: "от 150 ₽",
     href: "/metal-binding",
     tone: "sky",
-    icon: <BindingIcon />,
+    image: "/images/services/binding.webp",
   },
 ];
 
@@ -141,7 +81,18 @@ export function PrintServices() {
               key={service.title}
               className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-lg"
             >
-              <div className={`flex h-32 items-center justify-center ${cardTones[service.tone]}`}>{service.icon}</div>
+              <div className={`aspect-[7/5] w-full overflow-hidden ${cardTones[service.tone]}`}>
+                {/* The title below identifies the service; the image is decorative. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={service.image}
+                  alt=""
+                  width={840}
+                  height={600}
+                  loading="lazy"
+                  className="h-full w-full object-cover"
+                />
+              </div>
 
               <div className="flex flex-1 flex-col p-4">
                 <h3 className="text-base font-bold text-slate-900">{service.title}</h3>
