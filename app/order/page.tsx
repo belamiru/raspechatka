@@ -27,6 +27,22 @@ import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageOpt
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
 
 
+function getFilesWord(count: number) {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return "файл";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "файла";
+  return "файлов";
+}
+
+function getPagesWord(count: number) {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return "страница";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "страницы";
+  return "страниц";
+}
+
 function makeFileId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -102,10 +118,21 @@ export default function Home() {
     0
   );
 
-  const totalPrintQuantity = itemPricings.reduce(
-    (total, item) => total + item.pricing.quantity,
-    0
-  );
+  const documentsPrice = itemPricings
+    .filter((item) => item.file.kind === "document")
+    .reduce((total, item) => total + item.pricing.totalPrice, 0);
+
+  const imagesPrice = itemPricings
+    .filter((item) => item.file.kind === "image")
+    .reduce((total, item) => total + item.pricing.totalPrice, 0);
+
+  /*
+   * «Далее» в нижней панели на мобильном: заказ не отправляет, а прокручивает
+   * к блоку «Ваш заказ», где согласия и кнопка оформления.
+   */
+  function scrollToOrderSummary() {
+    document.getElementById("order")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   const totalPhysicalSheetQuantity = itemPricings.reduce(
     (total, item) => total + item.pricing.physicalSheetQuantity,
@@ -120,25 +147,6 @@ export default function Home() {
       ) as Record<string, number>,
     [itemPricings]
   );
-
-  /*
-   * «Настроить» в карточке файла: на мобильном панель параметров стоит под
-   * списком, поэтому прокручиваем к ней. На компьютере она видна справа.
-   */
-  function scrollToPrintSettings() {
-    const target =
-      window.matchMedia("(min-width: 1024px)").matches
-        ? document.getElementById("print-settings-desktop")
-        : document.getElementById("print-settings-mobile");
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
-  const selectedFile =
-    files.find((file) => file.id === selectedFileId) ?? null;
-
-  const selectedFilePrice =
-    itemPricings.find((item) => item.file.id === selectedFile?.id)?.pricing
-      .totalPrice ?? null;
 
   const totalSourceFileSize = files.reduce(
     (total, item) => total + item.file.size,
@@ -483,7 +491,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
+    <main className={`min-h-screen bg-slate-50 text-slate-900 ${files.length > 0 ? "pb-24 lg:pb-0" : ""}`}>
       <SiteHeader />
 
       <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
@@ -547,7 +555,16 @@ export default function Home() {
               selectedFileId={selectedFileId}
               onSelectFile={setSelectedFileId}
               prices={filePrices}
-              onConfigure={scrollToPrintSettings}
+              onCollapse={() => setSelectedFileId(null)}
+              renderSettings={(item) => (
+                <PrintSettingsPanel
+                  variant="inline"
+                  selectedFile={item}
+                  selectedFilePrice={filePrices[item.id] ?? null}
+                  onPrintSettingsChange={changeFilePrintSettings}
+                  onApplyToAll={applyPrintSettingsToAll}
+                />
+              )}
             />
 
             {isAnalyzingFiles && (
@@ -584,14 +601,6 @@ export default function Home() {
               </div>
             )}
 
-            <div id="print-settings-mobile" className="mt-6 scroll-mt-4 lg:hidden">
-              <PrintSettingsPanel
-                selectedFile={selectedFile}
-                selectedFilePrice={selectedFilePrice}
-                onPrintSettingsChange={changeFilePrintSettings}
-                onApplyToAll={applyPrintSettingsToAll}
-              />
-            </div>
 
             {files.length > 0 && (
               <p className="mt-4 text-sm text-slate-500">
@@ -609,101 +618,72 @@ export default function Home() {
             <div className="min-w-0 space-y-6 lg:self-start">
             <aside
               id="order"
-              className="rounded-3xl bg-slate-900 p-6 text-white shadow-xl sm:p-8"
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
             >
-            <p className="text-sm font-bold uppercase tracking-wider text-blue-300">
-              Ваш заказ
+            <h2 className="text-xl font-black text-slate-950">Ваш заказ</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {files.length} {getFilesWord(files.length)} · {totalPages} {getPagesWord(totalPages)}
             </p>
 
-            <h2 className="mt-3 text-2xl font-bold">Чёрно-белая печать</h2>
+            <dl className="mt-5 space-y-2.5 border-b border-slate-100 pb-5 text-sm">
+              {documentsPrice > 0 && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-600">Печать документов</dt>
+                  <dd className="font-semibold text-slate-900">{documentsPrice} ₽</dd>
+                </div>
+              )}
 
-            <div className="mt-7 space-y-4 border-y border-slate-700 py-6 text-sm">
-              <div className="flex justify-between gap-4">
-                <span className="text-slate-400">Файлов</span>
-                <span className="font-semibold">{files.length}</span>
-              </div>
-
-              <div className="flex justify-between gap-4">
-                <span className="text-slate-400">Страниц</span>
-                <span className="font-semibold">{totalPages}</span>
-              </div>
-
-              <div className="flex justify-between gap-4">
-                <span className="text-slate-400">Настройки</span>
-                <span className="text-right font-semibold">
-                  Для каждого файла отдельно
-                </span>
-              </div>
+              {imagesPrice > 0 && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-600">Печать фото и изображений</dt>
+                  <dd className="font-semibold text-slate-900">{imagesPrice} ₽</dd>
+                </div>
+              )}
 
               <div className="flex justify-between gap-4">
-                <span className="text-slate-400">Физических листов</span>
-                <span className="font-semibold">{totalPhysicalSheetQuantity}</span>
+                <dt className="text-slate-600">Листов бумаги</dt>
+                <dd className="font-semibold text-slate-900">{totalPhysicalSheetQuantity}</dd>
               </div>
 
-              <div className="flex justify-between gap-4">
-                <span className="text-slate-400">Получение</span>
-                <span className="text-right font-semibold">Самовывоз</span>
-              </div>
+              {readyFiles.length === 0 && (
+                <p className="text-slate-500">Добавьте файлы, чтобы увидеть стоимость.</p>
+              )}
+            </dl>
+
+            <div className="mt-5 flex items-baseline justify-between gap-4">
+              <span className="text-lg font-black text-slate-950">Итого:</span>
+              <span className="text-3xl font-black text-slate-950">{price} ₽</span>
             </div>
-
-            <div className="mt-6 rounded-2xl bg-white/10 p-4">
-              <div className="flex justify-between gap-4 text-sm">
-                <span className="text-slate-300">Общий тираж</span>
-                <span className="font-semibold">{totalPrintQuantity} стр.</span>
-              </div>
-
-              <div className="mt-3 flex justify-between gap-4 text-sm">
-                <span className="text-slate-300">Расчёт</span>
-                <span className="text-right font-semibold">
-                  По каждому файлу
-                </span>
-              </div>
-
-              <div className="mt-3 text-xs leading-5 text-slate-400">
-                Скидка определяется отдельно для каждого файла — так же, как
-                при серверном создании заказа.
-              </div>
-            </div>
-
-            <div className="mt-6 flex items-end justify-between gap-4">
-              <span className="text-slate-300">
-                Предварительная стоимость
-              </span>
-              <span className="text-3xl font-black">{price} ₽</span>
-            </div>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Предварительная стоимость. Доставка рассчитывается на следующем шаге.
+            </p>
 
             {isAnalyzingFiles && (
-              <p className="mt-4 rounded-xl bg-blue-500/20 p-3 text-sm font-medium text-blue-100">
+              <p className="mt-4 rounded-xl bg-blue-50 p-3 text-sm font-medium text-blue-900">
                 Проверяем добавленные файлы и считаем страницы…
               </p>
             )}
 
             {formError && (
-              <p className="mt-5 rounded-xl bg-red-500/20 p-3 text-sm font-medium text-red-100">
+              <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700 ring-1 ring-red-100">
                 {formError}
               </p>
             )}
 
             {createdOrderNumber && (
-              <div className="mt-5 rounded-2xl bg-emerald-500/20 p-4">
-                <p className="text-sm font-bold text-emerald-200">
-                  Заказ успешно создан
-                </p>
-
-                <p className="mt-2 text-xl font-black">
-                  {createdOrderNumber}
-                </p>
-
-                <p className="mt-2 text-sm leading-5 text-emerald-50">
+              <div className="mt-4 rounded-xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
+                <p className="text-sm font-bold text-emerald-800">Заказ успешно создан</p>
+                <p className="mt-1 text-xl font-black text-slate-950">{createdOrderNumber}</p>
+                <p className="mt-1 text-sm leading-5 text-emerald-900">
                   Мы свяжемся с вами для подтверждения заказа.
                 </p>
               </div>
             )}
 
-            <div className="mt-7 space-y-3 border-t border-white/15 pt-5 text-sm text-slate-200">
-              <label className="flex cursor-pointer gap-3 leading-5"><input type="checkbox" checked={personalDataConsent} onChange={(event) => setPersonalDataConsent(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300" /><span>Согласен на <a className="underline underline-offset-2 hover:text-white" href="/personal-data-consent" target="_blank" rel="noreferrer">обработку персональных данных</a>.</span></label>
-              <label className="flex cursor-pointer gap-3 leading-5"><input type="checkbox" checked={offerAccepted} onChange={(event) => setOfferAccepted(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300" /><span>Принимаю условия <a className="underline underline-offset-2 hover:text-white" href="/offer" target="_blank" rel="noreferrer">публичной оферты</a>.</span></label>
-              <label className="flex cursor-pointer gap-3 leading-5"><input type="checkbox" checked={fileRulesAccepted} onChange={(event) => setFileRulesAccepted(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300" /><span>Ознакомился с <a className="underline underline-offset-2 hover:text-white" href="/file-rules" target="_blank" rel="noreferrer">требованиями к файлам</a>.</span></label>
+            <div className="mt-5 space-y-2.5 text-xs text-slate-600">
+              <label className="flex cursor-pointer gap-2.5 leading-5"><input type="checkbox" checked={personalDataConsent} onChange={(event) => setPersonalDataConsent(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300" /><span>Согласен на <a className="font-semibold text-blue-700 underline underline-offset-2 hover:text-blue-800" href="/personal-data-consent" target="_blank" rel="noreferrer">обработку персональных данных</a>.</span></label>
+              <label className="flex cursor-pointer gap-2.5 leading-5"><input type="checkbox" checked={offerAccepted} onChange={(event) => setOfferAccepted(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300" /><span>Принимаю условия <a className="font-semibold text-blue-700 underline underline-offset-2 hover:text-blue-800" href="/offer" target="_blank" rel="noreferrer">публичной оферты</a>.</span></label>
+              <label className="flex cursor-pointer gap-2.5 leading-5"><input type="checkbox" checked={fileRulesAccepted} onChange={(event) => setFileRulesAccepted(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300" /><span>Ознакомился с <a className="font-semibold text-blue-700 underline underline-offset-2 hover:text-blue-800" href="/file-rules" target="_blank" rel="noreferrer">требованиями к файлам</a>.</span></label>
             </div>
 
             <button
@@ -714,31 +694,37 @@ export default function Home() {
                 files.length === 0 ||
                 hasFileErrors
               }
-              className="mt-7 w-full rounded-xl bg-blue-600 px-5 py-4 font-bold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-5 w-full rounded-xl bg-amber-500 px-5 py-4 font-bold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSubmitting
                 ? "Создаём заказ..."
                 : isAnalyzingFiles
                   ? "Проверяем файлы..."
-                  : "Оформить заказ"}
+                  : "Перейти к получению"}
             </button>
 
-            <p className="mt-4 text-center text-xs leading-5 text-slate-400">
+            <p className="mt-3 text-center text-xs leading-5 text-slate-500">
               Самовывоз: Воронеж, ул. Шукшина, д. 21, офис 8.
             </p>
             </aside>
-
-            <div id="print-settings-desktop" className="hidden scroll-mt-6 lg:block">
-              <PrintSettingsPanel
-                selectedFile={selectedFile}
-                selectedFilePrice={selectedFilePrice}
-                onPrintSettingsChange={changeFilePrintSettings}
-                onApplyToAll={applyPrintSettingsToAll}
-              />
-            </div>
           </div>
         </form>
       </section>
+
+      {files.length > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-5 py-3 shadow-[0_-4px_16px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+            <p className="text-lg font-black text-slate-950">Итого: {price} ₽</p>
+            <button
+              type="button"
+              onClick={scrollToOrderSummary}
+              className="rounded-xl bg-amber-500 px-6 py-3 text-sm font-bold text-white transition hover:bg-amber-600"
+            >
+              Далее
+            </button>
+          </div>
+        </div>
+      )}
 
       <SiteFooter />
     </main>

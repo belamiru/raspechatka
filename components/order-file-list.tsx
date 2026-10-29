@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
   formatFileSize,
   type ClientFileKind,
@@ -50,8 +51,11 @@ type OrderFileListProps = {
    */
   prices?: Record<string, number>;
 
-  /* Кнопка «Настроить»: на мобильном прокручивает к панели параметров. */
-  onConfigure?: (id: string) => void;
+  /* Свернуть параметры выбранного файла. */
+  onCollapse?: () => void;
+
+  /* Параметры печати, которые показываются внутри карточки выбранного файла. */
+  renderSettings?: (item: OrderFileListItem) => ReactNode;
 };
 
 function getPrintSidesLabel(
@@ -85,7 +89,8 @@ export function OrderFileList({
   selectedFileId,
   onSelectFile,
   prices,
-  onConfigure,
+  onCollapse,
+  renderSettings,
 }: OrderFileListProps) {
   if (items.length === 0) {
     return null;
@@ -95,9 +100,9 @@ export function OrderFileList({
     onSelectFile?.(id);
   }
 
-  function configureFile(id: string) {
-    onSelectFile?.(id);
-    onConfigure?.(id);
+  function toggleSettings(id: string, isOpen: boolean) {
+    if (isOpen) onCollapse?.();
+    else onSelectFile?.(id);
   }
 
   return (
@@ -108,6 +113,7 @@ export function OrderFileList({
         const isError = item.status === "error";
         const isAnalyzing = item.status === "analyzing";
         const filePrice = prices?.[item.id];
+        const isSettingsOpen = isSelected && isReady && Boolean(renderSettings);
 
         return (
           <li
@@ -217,18 +223,25 @@ export function OrderFileList({
               )}
             </div>
 
+            {isSettingsOpen && (
+              <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-4">
+                {renderSettings?.(item)}
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-4 py-2.5">
               {!isError && (
                 <button
                   type="button"
                   disabled={!isReady}
+                  aria-expanded={isSettingsOpen}
                   onClick={(event) => {
                     event.stopPropagation();
-                    configureFile(item.id);
+                    toggleSettings(item.id, isSettingsOpen);
                   }}
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Настроить
+                  {isSettingsOpen ? "Свернуть" : "Настроить"}
                 </button>
               )}
 

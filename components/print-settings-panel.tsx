@@ -18,6 +18,12 @@ type PrintSettingsPanelProps = {
     settings: FilePrintSettings
   ) => void;
   onApplyToAll: (settings: FilePrintSettings) => void;
+
+  /*
+   * inline — панель встроена в карточку файла: без своей рамки, без
+   * повторного названия файла и без цены (они уже есть в карточке).
+   */
+  variant?: "card" | "inline";
 };
 
 function getFileKindLabel(item: OrderFileListItem) {
@@ -158,7 +164,12 @@ export function PrintSettingsPanel({
   selectedFilePrice,
   onPrintSettingsChange,
   onApplyToAll,
+  variant = "card",
 }: PrintSettingsPanelProps) {
+  const isInline = variant === "inline";
+  const shellClass = isInline
+    ? "min-w-0"
+    : "h-fit min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm";
   if (!selectedFile) {
     return (
       <aside className="h-fit min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -196,7 +207,9 @@ export function PrintSettingsPanel({
   }
 
   return (
-    <aside className="h-fit min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className={shellClass}>
+      {!isInline && (
+      <>
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-bold uppercase tracking-wider text-blue-700">Параметры печати</p>
         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
@@ -216,6 +229,8 @@ export function PrintSettingsPanel({
               : "Не удалось проверить файл"}
         </p>
       </div>
+      </>
+      )}
 
       {!isReady && (
         <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">
@@ -223,7 +238,7 @@ export function PrintSettingsPanel({
         </p>
       )}
 
-      <fieldset disabled={!isReady} className="mt-4 min-w-0 space-y-4 border-0 p-0">
+      <fieldset disabled={!isReady} className={`${isInline ? "" : "mt-4"} grid min-w-0 gap-4 border-0 p-0 ${isInline ? "sm:grid-cols-2" : ""}`}>
         <Segmented
           label="Формат"
           value={settings.defaults.paperFormat}
@@ -272,10 +287,12 @@ export function PrintSettingsPanel({
         Цвет можно задать отдельно для страниц в предпросмотре.
       </p>
 
+      {!isInline && (
       <div className="mt-4 flex items-center justify-between gap-4 rounded-xl bg-slate-900 px-4 py-3 text-white">
         <span className="text-sm text-slate-300">Стоимость файла</span>
         <span className="text-2xl font-black">{selectedFilePrice ?? 0} ₽</span>
       </div>
+      )}
 
       <button
         type="button"
@@ -285,6 +302,6 @@ export function PrintSettingsPanel({
       >
         Применить ко всем файлам
       </button>
-    </aside>
+    </div>
   );
 }
