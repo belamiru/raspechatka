@@ -6,6 +6,7 @@
  */
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { OrderFileDropzone } from "@/components/order-file-dropzone";
 import {
   OrderFileList,
@@ -26,52 +27,6 @@ import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageOpt
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
 
 
-type PriceTab = "black-and-white" | "color";
-
-type PriceTable = {
-  label: string;
-  shortLabel: string;
-  description: string;
-  accent: string;
-  tiers: { quantity: string; a4: number }[];
-};
-
-const PRICE_TABLES: Record<PriceTab, PriceTable> = {
-  "black-and-white": {
-    label: "Чёрно-белая печать",
-    shortLabel: "Ч/б печать",
-    description:
-      "Цена рассчитывается отдельно для каждого файла с учётом формата, числа страниц и копий. Для A3 цена ×2.",
-    accent: "blue",
-    tiers: [
-      { quantity: "1–10", a4: 20 },
-      { quantity: "11–25", a4: 18 },
-      { quantity: "26–75", a4: 16 },
-      { quantity: "76–200", a4: 14 },
-      { quantity: "201–500", a4: 11 },
-      { quantity: "От 501", a4: 8 },
-    ],
-  },
-  color: {
-    label: "Цветная печать",
-    shortLabel: "Цветная",
-    description:
-      "Для документов, презентаций, таблиц, графиков и макетов с обычной цветной насыщенностью. Для A3 цена ×2.",
-    accent: "violet",
-    tiers: [
-      { quantity: "1–10", a4: 40 },
-      { quantity: "11–25", a4: 36 },
-      { quantity: "26–75", a4: 32 },
-      { quantity: "76–200", a4: 28 },
-      { quantity: "201–500", a4: 22 },
-      { quantity: "От 501", a4: 16 },
-    ],
-  },
-
-};
-
-const PRICE_TABS: PriceTab[] = ["black-and-white", "color"];
-
 function makeFileId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -86,7 +41,6 @@ function makeFileKey(file: File) {
 
 export default function Home() {
   const [files, setFiles] = useState<OrderFileListItem[]>([]);
-  const [activePriceTab, setActivePriceTab] = useState<PriceTab>("black-and-white");
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
 
   const [website, setWebsite] = useState("");
@@ -508,100 +462,29 @@ export default function Home() {
     }
   }
 
-  function ServiceIcon({ kind }: { kind: "color" | "photo" | "lamination" | "binding" }) {
-    const common = { width: 42, height: 42, viewBox: "0 0 48 48", fill: "none", "aria-hidden": true } as const;
-    if (kind === "color") return <svg {...common}><rect x="8" y="17" width="32" height="20" rx="3" fill="#f7c948" stroke="#17243f" strokeWidth="2"/><rect x="12" y="10" width="24" height="12" rx="2" fill="#67d3e8" stroke="#17243f" strokeWidth="2"/><path d="M17 27h14M17 32h9" stroke="#17243f" strokeWidth="2" strokeLinecap="round"/><rect x="19" y="37" width="10" height="5" rx="1" fill="#f58ca8" stroke="#17243f" strokeWidth="2"/></svg>;
-    if (kind === "photo") return <svg {...common}><rect x="8" y="12" width="27" height="25" rx="2" fill="#dbeafe" stroke="#17243f" strokeWidth="2" transform="rotate(-8 8 12)"/><rect x="14" y="17" width="27" height="25" rx="2" fill="#fff" stroke="#17243f" strokeWidth="2"/><circle cx="33" cy="23" r="3" fill="#f7c948" stroke="#17243f" strokeWidth="2"/><path d="m17 37 8-8 5 5 4-4 7 7" stroke="#1769e8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>;
-    if (kind === "lamination") return <svg {...common}><path d="M12 9h18l8 8v22H12z" fill="#dbeafe" stroke="#17243f" strokeWidth="2"/><path d="M30 9v9h8" stroke="#17243f" strokeWidth="2"/><rect x="7" y="25" width="34" height="12" rx="3" fill="#67d3e8" stroke="#17243f" strokeWidth="2"/><path d="M14 31h20" stroke="#17243f" strokeWidth="2" strokeLinecap="round"/></svg>;
-    return <svg {...common}><rect x="13" y="8" width="25" height="32" rx="2" fill="#dbeafe" stroke="#17243f" strokeWidth="2"/><path d="M19 8v32M25 8v32M31 8v32" stroke="#1769e8" strokeWidth="1.5"/><path d="M16 16h17M16 22h17M16 28h17" stroke="#17243f" strokeWidth="1.5" strokeLinecap="round"/><circle cx="11" cy="14" r="2" fill="#f7c948"/><circle cx="11" cy="24" r="2" fill="#f7c948"/><circle cx="11" cy="34" r="2" fill="#f7c948"/></svg>;
-  }
-
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <SiteHeader />
 
-      <section className="hero-section border-b border-blue-100 bg-gradient-to-br from-blue-50 via-white to-sky-100">
-        <div className="mx-auto grid max-w-7xl items-center gap-8 px-5 py-12 sm:py-16 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
-          <div className="max-w-2xl">
-            <p className="mb-4 inline-flex rounded-full bg-blue-100 px-3 py-1 text-xs font-bold uppercase tracking-wider text-blue-700">
-              Печать документов онлайн
+      <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
+        <nav className="text-sm text-slate-500" aria-label="Навигация">
+          <Link href="/" className="hover:text-blue-700">Главная</Link> / <span className="text-slate-700">Новый заказ</span>
+        </nav>
+
+        <div className="mb-8 mt-4 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 className="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">Настройте заказ</h1>
+            <p className="mt-2 max-w-xl leading-7 text-slate-600">
+              Проверьте файлы, выберите параметры печати и узнайте итоговую стоимость.
             </p>
-
-            <h1 className="text-3xl font-black leading-tight tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">
-              Печать документов, фото и плакатов с доставкой в любой регион онлайн
-            </h1>
-
-            <p className="mt-5 max-w-xl text-lg leading-8 text-slate-600">
-              Загрузите файл, выберите параметры и сразу увидите цену. Заберёте сегодня или закажете доставку.
-            </p>
-
-            <div className="mt-8 grid max-w-xl grid-cols-3 gap-3 text-sm text-slate-600">
-              <div className="flex items-center gap-2"><span className="hero-benefit-icon">⚡</span><span>Быстро<br className="sm:hidden" /> и удобно</span></div>
-              <div className="flex items-center gap-2"><span className="hero-benefit-icon">◇</span><span>Гарантия<br className="sm:hidden" /> качества</span></div>
-              <div className="flex items-center gap-2"><span className="hero-benefit-icon">▣</span><span>Безопасная<br className="sm:hidden" /> оплата</span></div>
-            </div>
           </div>
 
-          <div className="hero-illustration-wrap" aria-hidden="true">
-            <img
-              src="/images/hero-printing-documents.webp?v=2"
-              alt=""
-              className="hero-illustration"
-              width="800"
-              height="500"
-            />
-          </div>
+          <ol className="grid w-full max-w-md grid-cols-3 gap-2 text-xs font-semibold text-slate-500 sm:text-sm" aria-label="Этапы заказа">
+            <li aria-current="step"><span className="block h-1.5 rounded-full bg-blue-600" /><span className="mt-2 block text-slate-900">1. Файлы</span></li>
+            <li><span className="block h-1.5 rounded-full bg-slate-200" /><span className="mt-2 block">2. Получение</span></li>
+            <li><span className="block h-1.5 rounded-full bg-slate-200" /><span className="mt-2 block">3. Оплата</span></li>
+          </ol>
         </div>
-      </section>
-
-      <section className="mx-auto max-w-7xl px-5 py-10 sm:py-12">
-        <section
-          aria-labelledby="other-services-heading"
-          className="mb-10 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
-        >
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-sm font-bold uppercase tracking-wider text-blue-700">
-                Типография Copyleft
-              </p>
-
-              <h2
-                id="other-services-heading"
-                className="mt-2 text-2xl font-bold"
-              >
-                Другие услуги печати
-              </h2>
-
-              <p className="mt-2 max-w-2xl leading-7 text-slate-600">
-                Цветная печать, фотопечать, ламинация и переплёт уже доступны
-                в типографии. Онлайн-калькуляторы для этих услуг готовятся.
-              </p>
-            </div>
-
-            <a
-              href="/services"
-              className="shrink-0 font-semibold text-blue-700 underline underline-offset-4 hover:text-blue-800"
-            >
-              Все услуги →
-            </a>
-          </div>
-
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              ["/color-printing", "color", "Цветная печать"],
-              ["/photo-printing", "photo", "Фотопечать"],
-              ["/lamination", "lamination", "Ламинация"],
-              ["/metal-binding", "binding", "Переплёт документов"],
-            ].map(([href, kind, label]) => (
-              <a key={href} href={href} className="service-card group rounded-2xl border border-slate-200 bg-white p-5 transition hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg">
-                <span className="service-icon flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 transition group-hover:bg-blue-100">
-                  <ServiceIcon kind={kind as "color" | "photo" | "lamination" | "binding"} />
-                </span>
-                <span className="mt-5 block text-lg font-bold text-slate-800 group-hover:text-blue-700">{label}</span>
-              </a>
-            ))}
-          </div>
-        </section>
 
         <form
           onSubmit={handleSubmit}
@@ -625,7 +508,7 @@ export default function Home() {
           </div>
 
           <section id="upload" className="scroll-mt-24 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-            <h2 className="text-2xl font-bold">1. Загрузите файлы</h2>
+            <h2 className="text-2xl font-bold">Файлы для печати</h2>
 
             <p className="mt-2 text-sm leading-6 text-slate-500">
               Можно добавить до 8 файлов: документы PDF, DOC, DOCX, XLS, XLSX,
@@ -699,117 +582,9 @@ export default function Home() {
               </p>
             )}
 
-            <div className="mt-8 border-t border-slate-100 pt-8">
-              <h2 id="prices" className="scroll-mt-24 text-2xl font-bold">2. Стоимость печати</h2>
-
-              <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-                <div
-                  className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 p-2"
-                  role="tablist"
-                  aria-label="Тип печати"
-                >
-                  {PRICE_TABS.map((tab) => {
-                    const isActive = activePriceTab === tab;
-                    const table = PRICE_TABLES[tab];
-
-                    return (
-                      <button
-                        key={tab}
-                        type="button"
-                        role="tab"
-                        id={`price-tab-${tab}`}
-                        aria-controls={`price-panel-${tab}`}
-                        aria-selected={isActive}
-                        onClick={() => setActivePriceTab(tab)}
-                        className={`min-h-11 shrink-0 rounded-2xl px-4 py-2.5 text-sm font-bold transition sm:px-5 ${
-                          isActive
-                            ? "bg-slate-900 text-white shadow-sm"
-                            : "text-slate-600 hover:bg-white hover:text-slate-900"
-                        }`}
-                      >
-                        <span className="sm:hidden">{table.shortLabel}</span>
-                        <span className="hidden sm:inline">{table.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {PRICE_TABS.map((tab) => {
-                  const isActive = activePriceTab === tab;
-                  const table = PRICE_TABLES[tab];
-                  const isBlackAndWhite = table.accent === "blue";
-                  const accentClass = isBlackAndWhite
-                    ? "text-blue-700"
-                    : table.accent === "violet"
-                      ? "text-violet-700"
-                      : "text-fuchsia-700";
-
-                  return (
-                    <div
-                      key={tab}
-                      id={`price-panel-${tab}`}
-                      role="tabpanel"
-                      aria-labelledby={`price-tab-${tab}`}
-                      hidden={!isActive}
-                      className="p-4 sm:p-6"
-                    >
-                      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <p className={`text-base font-bold ${accentClass}`}>
-                            {table.label}
-                          </p>
-                          <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500 sm:text-sm">
-                            {table.description}
-                          </p>
-                        </div>
-                        <span className="w-fit rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
-                          Цена за 1 сторону
-                        </span>
-                      </div>
-
-                      <div className="overflow-x-auto rounded-2xl border border-slate-100">
-                        <table className="min-w-full text-left text-xs sm:text-sm">
-                          <thead className="bg-slate-50 text-slate-500">
-                            <tr>
-                              <th className="px-4 py-3 font-semibold">Тираж</th>
-                              <th className="px-4 py-3 font-semibold">A4</th>
-                              <th className="px-4 py-3 font-semibold">A3</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 text-slate-700">
-                            {table.tiers.map((tier, index) => {
-                              const isLast = index === table.tiers.length - 1;
-                              return (
-                                <tr key={tier.quantity} className={isLast ? "bg-slate-50/70" : ""}>
-                                  <td className="px-4 py-3 font-medium">{tier.quantity}</td>
-                                  <td className={`px-4 py-3 ${isLast ? `font-bold ${accentClass}` : ""}`}>
-                                    {tier.a4} ₽
-                                  </td>
-                                  <td className={`px-4 py-3 ${isLast ? `font-bold ${accentClass}` : ""}`}>
-                                    {tier.a4 * 2} ₽
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
           </section>
 
-            <div className="min-w-0 space-y-6 lg:sticky lg:top-6 lg:self-start">
-            <PrintSettingsPanel
-              selectedFile={selectedFile}
-              selectedFilePrice={selectedFilePrice}
-              onPrintSettingsChange={changeFilePrintSettings}
-              onApplyToAll={applyPrintSettingsToAll}
-            />
-
+            <div className="min-w-0 space-y-6 lg:self-start">
             <aside
               id="order"
               className="rounded-3xl bg-slate-900 p-6 text-white shadow-xl sm:p-8"
@@ -930,50 +705,17 @@ export default function Home() {
               Самовывоз: Воронеж, ул. Шукшина, д. 21, офис 8.
             </p>
             </aside>
+
+            <div className="hidden lg:block">
+              <PrintSettingsPanel
+                selectedFile={selectedFile}
+                selectedFilePrice={selectedFilePrice}
+                onPrintSettingsChange={changeFilePrintSettings}
+                onApplyToAll={applyPrintSettingsToAll}
+              />
+            </div>
           </div>
         </form>
-      </section>
-
-      <section id="how-to-order" className="scroll-mt-24 mx-auto max-w-7xl px-5 pb-6">
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <h2 className="text-2xl font-bold">Как заказать</h2>
-          <ol className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              ["Загрузите файлы", "До 8 файлов за заказ: PDF, Word, Excel, PowerPoint, JPG и PNG."],
-              ["Выберите параметры", "Формат, цвет, стороны и количество копий. Цена пересчитывается сразу."],
-              ["Оформите заказ", "Укажите контакты, способ получения и оплатите онлайн."],
-              ["Получите готовое", "Заберите в Воронеже или закажите доставку в пункт выдачи."],
-            ].map(([title, text], index) => (
-              <li key={title} className="rounded-2xl bg-slate-50 p-4">
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-700 text-sm font-bold text-white">
-                  {index + 1}
-                </span>
-                <p className="mt-3 font-bold text-slate-900">{title}</p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">{text}</p>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </section>
-
-      <section id="delivery" className="scroll-mt-24 mx-auto max-w-7xl px-5 pb-12">
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <h2 className="text-2xl font-bold">Доставка</h2>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="font-bold text-slate-900">Самовывоз в Воронеже</p>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                ул. Шукшина, д. 21, офис 8. Пн–Пт: 10:00–18:30. Бесплатно.
-              </p>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="font-bold text-slate-900">Доставка в пункт выдачи</p>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                Выберите пункт выдачи на карте при оформлении заказа. Стоимость и срок доставки рассчитываются автоматически.
-              </p>
-            </div>
-          </div>
-        </div>
       </section>
 
       <SiteFooter />
