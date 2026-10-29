@@ -113,6 +113,26 @@ export default function Home() {
   );
 
 
+  const filePrices = useMemo(
+    () =>
+      Object.fromEntries(
+        itemPricings.map((item) => [item.file.id, item.pricing.totalPrice])
+      ) as Record<string, number>,
+    [itemPricings]
+  );
+
+  /*
+   * «Настроить» в карточке файла: на мобильном панель параметров стоит под
+   * списком, поэтому прокручиваем к ней. На компьютере она видна справа.
+   */
+  function scrollToPrintSettings() {
+    const target =
+      window.matchMedia("(min-width: 1024px)").matches
+        ? document.getElementById("print-settings-desktop")
+        : document.getElementById("print-settings-mobile");
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   const selectedFile =
     files.find((file) => file.id === selectedFileId) ?? null;
 
@@ -526,6 +546,8 @@ export default function Home() {
               onRemove={removeFile}
               selectedFileId={selectedFileId}
               onSelectFile={setSelectedFileId}
+              prices={filePrices}
+              onConfigure={scrollToPrintSettings}
             />
 
             {isAnalyzingFiles && (
@@ -562,7 +584,7 @@ export default function Home() {
               </div>
             )}
 
-            <div className="mt-6 lg:hidden">
+            <div id="print-settings-mobile" className="mt-6 scroll-mt-4 lg:hidden">
               <PrintSettingsPanel
                 selectedFile={selectedFile}
                 selectedFilePrice={selectedFilePrice}
@@ -706,7 +728,7 @@ export default function Home() {
             </p>
             </aside>
 
-            <div className="hidden lg:block">
+            <div id="print-settings-desktop" className="hidden scroll-mt-6 lg:block">
               <PrintSettingsPanel
                 selectedFile={selectedFile}
                 selectedFilePrice={selectedFilePrice}
