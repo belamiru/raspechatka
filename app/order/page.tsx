@@ -25,6 +25,7 @@ import { reachMetrikaGoal } from "@/lib/metrika";
 import { getPrintPriceForPages } from "@/lib/pricing";
 import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageOptions } from "@/lib/print-settings";
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
+import { takePendingOrderFiles } from "@/lib/pending-order-files";
 
 
 function getFilesWord(count: number) {
@@ -346,6 +347,45 @@ export default function Home() {
       void analyzeAddedFile(item.id, item.file);
     }
   }
+
+  /*
+   * Забираем файл, выбранный в виджете на главной. Он приходит готовым:
+   * документ уже подготовлен на сервере (draftId), изображение — тем же File.
+   * Забрать можно один раз: takePendingOrderFiles очищает хранилище, поэтому
+   * повторное монтирование не задвоит файл.
+   */
+  useEffect(() => {
+    const pending = takePendingOrderFiles();
+
+    if (pending.length === 0) {
+      return;
+    }
+
+    const incoming: OrderFileListItem[] = pending.map((item) => ({
+      id: item.id,
+      file: item.file,
+      kind: item.kind,
+      pageCount: item.pageCount,
+      status: "ready",
+      error: null,
+      draftId: item.draftId,
+      previewUrl: item.previewUrl,
+      printSettings: item.printSettings,
+    }));
+
+    setFiles((currentFiles) => {
+      const existingKeys = new Set(
+        currentFiles.map((file) => makeFileKey(file.file))
+      );
+      const unique = incoming.filter(
+        (item) => !existingKeys.has(makeFileKey(item.file))
+      );
+
+      return unique.length > 0 ? [...currentFiles, ...unique] : currentFiles;
+    });
+
+    setSelectedFileId((currentFileId) => currentFileId ?? incoming[0].id);
+  }, []);
 
   useEffect(() => {
     const sync = () => setFiles((current) => current.map((file) => {

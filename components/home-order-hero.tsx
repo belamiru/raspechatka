@@ -10,6 +10,7 @@ import {
   validateClientFile,
 } from "@/lib/client-file-analysis";
 import { reachMetrikaGoal } from "@/lib/metrika";
+import { setPendingOrderFiles } from "@/lib/pending-order-files";
 import { getPrintPriceForPages, type PaperFormat, type PrintColorMode, type PrintSides } from "@/lib/pricing";
 
 const TELEGRAM_URL = "https://t.me/belami_ru";
@@ -641,6 +642,35 @@ export function HomeOrderHero() {
           {/* Серая зона: переход на страницу заказа с настройками */}
           <Link
             href="/order"
+            /*
+             * Передаём уже подготовленный файл на страницу заказа. Документ к
+             * этому моменту лежит на сервере как черновик, поэтому повторный
+             * анализ там не нужен и только создал бы второй черновик.
+             */
+            onClick={() => {
+              if (uploaded && uploaded.status === "ready" && uploaded.pages) {
+                setPendingOrderFiles([
+                  {
+                    id: makeFileId(),
+                    file: uploaded.file,
+                    kind: uploaded.kind,
+                    pageCount: uploaded.pages,
+                    draftId: uploaded.draftId,
+                    previewUrl: null,
+                    printSettings: {
+                      copies,
+                      printSides: uploaded.kind === "image" ? "one-sided" : printSides,
+                      defaults: { paperFormat: effectivePaperFormat, colorMode },
+                      pageOverrides: {},
+                    },
+                  },
+                ]);
+                return;
+              }
+
+              /* Файла нет — очищаем, чтобы не перенести устаревший. */
+              setPendingOrderFiles([]);
+            }}
             className="mt-3 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:bg-slate-200"
           >
             <span aria-hidden="true" className="text-lg leading-none">+</span>
