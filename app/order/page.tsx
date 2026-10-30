@@ -25,6 +25,8 @@ import { reachMetrikaGoal } from "@/lib/metrika";
 import { getPrintPriceForPages } from "@/lib/pricing";
 import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageOptions } from "@/lib/print-settings";
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
+import { OrderTypeSelector } from "@/components/order-type-selector";
+import { PrintOptionsPanel } from "@/components/print-options-panel";
 import { takePendingOrderFiles } from "@/lib/pending-order-files";
 
 
@@ -554,6 +556,8 @@ export default function Home() {
           </ol>
         </div>
 
+        <OrderTypeSelector />
+
         <form
           onSubmit={handleSubmit}
           className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]"
@@ -653,6 +657,7 @@ export default function Home() {
               </p>
             )}
 
+            <PrintOptionsPanel />
           </section>
 
             <div className="min-w-0 space-y-6 lg:self-start">
