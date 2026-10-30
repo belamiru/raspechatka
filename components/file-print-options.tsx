@@ -3,24 +3,47 @@
 import { useId, useState } from "react";
 
 /*
- * Дополнительные опции печати.
+ * Тип печати — свойство конкретного файла, а не всего заказа: в корзине могут
+ * одновременно лежать документы, фотографии и плакаты, и у каждого свои опции.
  *
  * Пока это только интерфейс: выбор никуда не отправляется и на цену не влияет.
- * Когда появятся цены, состояние переедет в заказ рядом с printSettings,
- * а разметка и подсказки останутся теми же.
+ * Когда появится прайс, состояние переедет на сервер рядом с printSettings.
  */
+export const PRINT_KINDS = [
+  {
+    id: "document",
+    label: "Документ",
+    description: "Тексты, таблицы, презентации",
+  },
+  {
+    id: "photo",
+    label: "Фото",
+    description: "Снимки 10×15, A4",
+  },
+  {
+    id: "poster",
+    label: "Плакат",
+    description: "Чертежи и постеры до A0",
+  },
+] as const;
 
-type HintProps = {
-  /* Короткий текст подсказки, который раскрывается по клику на «?». */
-  text: string;
-  label: string;
-};
+export type PrintKindId = (typeof PRINT_KINDS)[number]["id"];
 
 /*
- * Кнопка «?» с подсказкой. Открывается по клику (работает и на телефоне,
- * где наведения нет) и закрывается повторным кликом или по кнопке «Понятно».
+ * Какие группы дополнительных опций относятся к типу печати. Пока цены нет,
+ * наборы одинаковые по смыслу, но карта уже задаёт зависимость: когда появятся
+ * форматы фотобумаги и плакатов, достаточно будет расширить именно её.
  */
-function Hint({ text, label }: HintProps) {
+const OPTION_GROUPS: Record<PrintKindId, readonly OptionGroupId[]> = {
+  document: ["paper", "lamination", "binding", "staple"],
+  photo: ["paper", "lamination"],
+  poster: ["lamination"],
+};
+
+type OptionGroupId = "paper" | "lamination" | "binding" | "staple";
+
+/* Кнопка «?» с подсказкой: работает по клику, поэтому годится и для телефона. */
+function Hint({ text, label }: { text: string; label: string }) {
   const [isOpen, setIsOpen] = useState(false);
   const popoverId = useId();
 
@@ -59,6 +82,53 @@ function Hint({ text, label }: HintProps) {
   );
 }
 
+/* Выбор типа печати для одного файла. */
+export function PrintKindSelector({
+  value,
+  onChange,
+}: {
+  value: PrintKindId;
+  onChange: (value: PrintKindId) => void;
+}) {
+  return (
+    <div>
+      <p className="flex items-center text-xs font-bold uppercase tracking-wider text-slate-400">
+        Тип печати
+        <Hint
+          label="Тип печати"
+          text="Выберите, что печатать из этого файла: обычный документ, фотографию или плакат. От этого зависят доступные опции, а позже — и цена. Тип задаётся для каждого файла отдельно."
+        />
+      </p>
+
+      <div className="mt-1.5 grid gap-1 rounded-xl bg-slate-100 p-1 sm:grid-cols-3" role="radiogroup" aria-label="Тип печати">
+        {PRINT_KINDS.map((kind) => {
+          const isSelected = kind.id === value;
+
+          return (
+            <button
+              key={kind.id}
+              type="button"
+              role="radio"
+              aria-checked={isSelected}
+              onClick={() => onChange(kind.id)}
+              className={`rounded-lg px-2 py-2 text-left transition ${
+                isSelected
+                  ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <span className="block text-sm font-bold">{kind.label}</span>
+              <span className="mt-0.5 block text-[10px] font-medium leading-3 text-slate-500">
+                {kind.description}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* Группа кнопок «выбрать один из вариантов». */
 function ChoiceRow<T extends string>({
   label,
@@ -67,24 +137,26 @@ function ChoiceRow<T extends string>({
   value,
   onChange,
   disabled,
+  columns,
 }: {
   label: string;
-  hint?: string;
-  options: { value: T; label: string; note?: string; disabled?: boolean }[];
+  hint: string;
+  options: { value: T; label: string; note?: string }[];
   value: T;
   onChange: (value: T) => void;
   disabled?: boolean;
+  columns?: number;
 }) {
   return (
     <div>
       <p className="flex items-center text-xs font-bold uppercase tracking-wider text-slate-400">
         {label}
-        {hint && <Hint text={hint} label={label} />}
+        <Hint text={hint} label={label} />
       </p>
 
       <div
         className="mt-1.5 grid gap-1 rounded-xl bg-slate-100 p-1"
-        style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+        style={{ gridTemplateColumns: `repeat(${columns ?? options.length}, minmax(0, 1fr))` }}
       >
         {options.map((option) => {
           const isSelected = option.value === value;
@@ -93,7 +165,7 @@ function ChoiceRow<T extends string>({
             <button
               key={option.value}
               type="button"
-              disabled={disabled || option.disabled}
+              disabled={disabled}
               aria-pressed={isSelected}
               onClick={() => onChange(option.value)}
               className={`rounded-lg px-2 py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${
@@ -116,51 +188,11 @@ function ChoiceRow<T extends string>({
   );
 }
 
-/* Переключатель «опция включена / выключена». */
-function ToggleRow({
-  label,
-  hint,
-  checked,
-  onChange,
-  description,
-}: {
-  label: string;
-  hint: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  description: string;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-      <div className="min-w-0">
-        <p className="flex items-center text-sm font-bold text-slate-800">
-          {label}
-          <Hint text={hint} label={label} />
-        </p>
-        <p className="mt-0.5 text-xs leading-4 text-slate-500">{description}</p>
-      </div>
-
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        onClick={() => onChange(!checked)}
-        className={`relative mt-1 h-6 w-11 shrink-0 rounded-full transition ${
-          checked ? "bg-blue-600" : "bg-slate-300"
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
-            checked ? "left-[1.375rem]" : "left-0.5"
-          }`}
-        />
-      </button>
-    </div>
-  );
-}
-
-export function PrintOptionsPanel() {
+/*
+ * Дополнительные опции для одного файла. Набор зависит от типа печати,
+ * но пока цены нет, выбор ни на что не влияет.
+ */
+export function PrintExtrasOptions({ kind }: { kind: PrintKindId }) {
   const [paper, setPaper] = useState<"80" | "120" | "250">("80");
   const [lamination, setLamination] = useState<"none" | "matte" | "gloss">("none");
   const [laminationThickness, setLaminationThickness] = useState<"80" | "120">("80");
@@ -169,25 +201,24 @@ export function PrintOptionsPanel() {
   const [backCover, setBackCover] = useState<"transparent" | "leather">("transparent");
   const [staple, setStaple] = useState<"none" | "left" | "right">("none");
 
+  const groups = OPTION_GROUPS[kind];
   const isLaminated = lamination !== "none";
 
   return (
-    <section
-      className="mt-6 border-t border-slate-100 pt-5"
-      aria-labelledby="print-options-heading"
-    >
+    <div className="space-y-4 border-t border-slate-200 pt-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="print-options-heading" className="text-lg font-black text-slate-950">
-          Дополнительные опции
-        </h2>
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Дополнительные опции</p>
         <p className="text-xs font-semibold text-slate-500">Скоро появятся цены</p>
       </div>
 
-      <p className="mt-1 text-sm leading-6 text-slate-500">
-        Необязательно. Формат, цвет и количество копий настраиваются отдельно для каждого файла.
-      </p>
+      {kind !== "document" && (
+        <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900">
+          Для типа «{PRINT_KINDS.find((item) => item.id === kind)?.label}» форматы и цены появятся
+          вместе с прайсом. Пока доступны только общие опции.
+        </p>
+      )}
 
-      <div className="mt-4 space-y-4">
+      {groups.includes("paper") && (
         <div>
           <ChoiceRow
             label="Бумага"
@@ -218,11 +249,13 @@ export function PrintOptionsPanel() {
           {paper === "250" && (
             <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900">
               250 г/м² — картон. Для обложек, грамот, визиток и приглашений.
-              Двусторонняя печать на таком листе в заказе недоступна.
+              Двусторонняя печать на таком листе недоступна.
             </p>
           )}
         </div>
+      )}
 
+      {groups.includes("lamination") && (
         <div className="rounded-xl border border-slate-200 bg-white p-3">
           <ChoiceRow
             label="Ламинация"
@@ -249,24 +282,44 @@ export function PrintOptionsPanel() {
               ]}
             />
 
-            {!isLaminated && (
-              <p className="mt-1.5 text-xs text-slate-400">Сначала выберите ламинацию.</p>
-            )}
+            {!isLaminated && <p className="mt-1.5 text-xs text-slate-400">Сначала выберите ламинацию.</p>}
           </div>
 
           <p className="mt-3 text-xs leading-5 text-slate-500">
             Ламинируется каждая страница отдельно. Для двусторонних документов это удорожает заказ вдвое.
           </p>
         </div>
+      )}
 
+      {groups.includes("binding") && (
         <div className="space-y-2">
-          <ToggleRow
-            label="Переплёт на металлическую пружину"
-            hint="Пружина позволяет раскрывать документ на 180° и добавлять листы. Подходит для курсовых, отчётов и инструкций."
-            checked={binding}
-            onChange={setBinding}
-            description="Раскрывается полностью, листы не выпадают"
-          />
+          <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+            <div className="min-w-0">
+              <p className="flex items-center text-sm font-bold text-slate-800">
+                Переплёт на металлическую пружину
+                <Hint
+                  label="Переплёт на пружину"
+                  text="Пружина позволяет раскрывать документ на 180° и добавлять листы. Подходит для курсовых, отчётов и инструкций."
+                />
+              </p>
+              <p className="mt-0.5 text-xs leading-4 text-slate-500">Раскрывается полностью, листы не выпадают</p>
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={binding}
+              aria-label="Переплёт на металлическую пружину"
+              onClick={() => setBinding((current) => !current)}
+              className={`relative mt-1 h-6 w-11 shrink-0 rounded-full transition ${binding ? "bg-blue-600" : "bg-slate-300"}`}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+                  binding ? "left-[1.375rem]" : "left-0.5"
+                }`}
+              />
+            </button>
+          </div>
 
           {binding && (
             <div className="ml-3 space-y-3 border-l-2 border-blue-100 pl-3">
@@ -298,7 +351,9 @@ export function PrintOptionsPanel() {
             </div>
           )}
         </div>
+      )}
 
+      {groups.includes("staple") && (
         <div>
           <ChoiceRow
             label="Скрепление степлером в углу"
@@ -319,11 +374,7 @@ export function PrintOptionsPanel() {
               : "Для документов до 30 листов. Для больших документов лучше выбрать переплёт."}
           </p>
         </div>
-      </div>
-
-      <p className="mt-4 border-t border-slate-100 pt-3 text-xs leading-5 text-slate-500">
-        Стоимость этих опций появится в заказе позже. Сейчас выбор ни на что не влияет.
-      </p>
-    </section>
+      )}
+    </div>
   );
 }

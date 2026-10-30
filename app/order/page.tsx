@@ -25,8 +25,11 @@ import { reachMetrikaGoal } from "@/lib/metrika";
 import { getPrintPriceForPages } from "@/lib/pricing";
 import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageOptions } from "@/lib/print-settings";
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
-import { OrderTypeSelector } from "@/components/order-type-selector";
-import { PrintOptionsPanel } from "@/components/print-options-panel";
+import {
+  PrintExtrasOptions,
+  PrintKindSelector,
+  type PrintKindId,
+} from "@/components/file-print-options";
 import { takePendingOrderFiles } from "@/lib/pending-order-files";
 
 
@@ -61,6 +64,9 @@ function makeFileKey(file: File) {
 export default function Home() {
   const [files, setFiles] = useState<OrderFileListItem[]>([]);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+
+  /* Тип печати задаётся для каждого файла: корзина бывает смешанной. */
+  const [printKinds, setPrintKinds] = useState<Record<string, PrintKindId>>({});
 
   const [website, setWebsite] = useState("");
 
@@ -556,8 +562,6 @@ export default function Home() {
           </ol>
         </div>
 
-        <OrderTypeSelector />
-
         <form
           onSubmit={handleSubmit}
           className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]"
@@ -600,15 +604,35 @@ export default function Home() {
               onSelectFile={setSelectedFileId}
               prices={filePrices}
               onCollapse={() => setSelectedFileId(null)}
-              renderSettings={(item) => (
-                <PrintSettingsPanel
-                  variant="inline"
-                  selectedFile={item}
-                  selectedFilePrice={filePrices[item.id] ?? null}
-                  onPrintSettingsChange={changeFilePrintSettings}
-                  onApplyToAll={applyPrintSettingsToAll}
-                />
-              )}
+              renderSettings={(item) => {
+                /*
+                 * По умолчанию изображение считается фотографией, остальное —
+                 * документом. Пользователь может поменять тип для любого файла.
+                 */
+                const printKind =
+                  printKinds[item.id] ?? (item.kind === "image" ? "photo" : "document");
+
+                return (
+                  <div className="space-y-4">
+                    <PrintKindSelector
+                      value={printKind}
+                      onChange={(nextKind) =>
+                        setPrintKinds((current) => ({ ...current, [item.id]: nextKind }))
+                      }
+                    />
+
+                    <PrintSettingsPanel
+                      variant="inline"
+                      selectedFile={item}
+                      selectedFilePrice={filePrices[item.id] ?? null}
+                      onPrintSettingsChange={changeFilePrintSettings}
+                      onApplyToAll={applyPrintSettingsToAll}
+                    />
+
+                    <PrintExtrasOptions kind={printKind} />
+                  </div>
+                );
+              }}
             />
 
             {isAnalyzingFiles && (
@@ -657,7 +681,6 @@ export default function Home() {
               </p>
             )}
 
-            <PrintOptionsPanel />
           </section>
 
             <div className="min-w-0 space-y-6 lg:self-start">
