@@ -22,7 +22,7 @@ import {
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { reachMetrikaGoal } from "@/lib/metrika";
-import { getPrintPriceForPages } from "@/lib/pricing";
+import { getPhotoPriceForCount, getPrintPriceForPages } from "@/lib/pricing";
 import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageOptions } from "@/lib/print-settings";
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
 import {
@@ -112,13 +112,34 @@ export default function Home() {
       readyFiles.map((file) => {
         const settings = file.printSettings ?? DEFAULT_PRINT_SETTINGS;
 
+        /*
+         * Фотографии печатаются на фотобумаге 10×15 и считаются по числу
+         * отпечатков, а не по страницам A4 — прайс у фотопечати свой.
+         */
+        if (file.kind === "image") {
+          const photoPricing = getPhotoPriceForCount(settings.copies);
+
+          return {
+            file,
+            pricing: {
+              ...getPrintPriceForPages({
+                pageOptions: [{ paperFormat: settings.defaults.paperFormat, colorMode: settings.defaults.colorMode }],
+                printSides: "one-sided",
+                copies: settings.copies,
+              }),
+              totalPrice: photoPricing.totalPrice,
+              quantity: photoPricing.quantity,
+              physicalSheetQuantity: photoPricing.quantity,
+              sheetsPerCopy: 1,
+            },
+          };
+        }
+
         return {
           file,
           pricing: getPrintPriceForPages({
-            pageOptions: file.kind === "document"
-              ? getPrintablePageOptions(file.pageCount ?? 0, settings)
-              : [{ paperFormat: settings.defaults.paperFormat, colorMode: settings.defaults.colorMode }],
-            printSides: file.kind === "image" ? "one-sided" : settings.printSides,
+            pageOptions: getPrintablePageOptions(file.pageCount ?? 0, settings),
+            printSides: settings.printSides,
             copies: settings.copies,
           }),
         };
@@ -139,7 +160,11 @@ export default function Home() {
         return {
           fileId: file.id,
           price: getExtrasPrice({
-            extras: printExtras[file.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS,
+            /* У фотобумаги своя цена за отпечаток, надбавка за плотность к ней не применяется. */
+            extras:
+              file.kind === "image"
+                ? { ...(printExtras[file.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS), paper: "80" }
+                : printExtras[file.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS,
             pageOptions: file.kind === "document"
               ? getPrintablePageOptions(pdfPages, settings)
               : [{ paperFormat: settings.defaults.paperFormat, colorMode: settings.defaults.colorMode }],

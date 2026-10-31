@@ -1,4 +1,44 @@
 export type PaperFormat = "A4" | "A3";
+
+/*
+ * Фотопечать 10×15 (A6) считается не по страницам, а по количеству отпечатков.
+ * Ступени объёма задаёт типография; 300-й отпечаток уже идёт по нижней цене.
+ */
+export type PhotoSize = "10x15";
+
+export type PhotoPriceTier = {
+  from: number;
+  to: number | null;
+  pricePerPhoto: number;
+  label: string;
+};
+
+export const PHOTO_PRICE_TIERS: PhotoPriceTier[] = [
+  { from: 1, to: 9, pricePerPhoto: 27, label: "1\u20139 фото" },
+  { from: 10, to: 49, pricePerPhoto: 22, label: "10\u201349 фото" },
+  { from: 50, to: 99, pricePerPhoto: 15, label: "50\u201399 фото" },
+  { from: 100, to: 299, pricePerPhoto: 12, label: "100\u2013299 фото" },
+  { from: 300, to: null, pricePerPhoto: 10, label: "\u043e\u0442 300 фото" },
+];
+
+/** Цена фотопечати за указанное количество отпечатков. */
+export function getPhotoPriceForCount(quantity: number) {
+  const validQuantity = Math.max(1, Math.floor(quantity));
+
+  const tier =
+    PHOTO_PRICE_TIERS.find(
+      (item) =>
+        item.to === null ||
+        (validQuantity >= item.from && validQuantity <= item.to)
+    ) ?? PHOTO_PRICE_TIERS[0];
+
+  return {
+    quantity: validQuantity,
+    tier,
+    unitPrice: tier.pricePerPhoto,
+    totalPrice: validQuantity * tier.pricePerPhoto,
+  };
+}
 export type PrintSides = "one-sided" | "two-sided";
 
 export type PriceTier = {

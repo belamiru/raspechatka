@@ -4,10 +4,12 @@ import { NextResponse } from "next/server";
 import { validateSupportedFile, type FileKind } from "@/lib/converter";
 import { getDb } from "@/lib/db";
 import { uploadOrderFile } from "@/lib/yandex-disk";
-import { getPrintPriceForPages } from "@/lib/pricing";
+import { getPhotoPriceForCount, getPrintPriceForPages } from "@/lib/pricing";
 import {
   DEFAULT_PRINT_EXTRA_OPTIONS,
   getExtrasPrice,
+  type CoverSet,
+  type PhotoFit,
   type PrintExtraOptions,
 } from "@/lib/print-extras";
 import { calculateOrderParcel } from "@/lib/order-parcel";
@@ -188,6 +190,8 @@ function parseExtras(rawValue: unknown): PrintExtraOptions | null {
   const frontCover = value.frontCover;
   const backCover = value.backCover;
   const staple = value.staple;
+  const coverSet = value.coverSet;
+  const photoFit = value.photoFit;
 
   if (paper !== "80" && paper !== "120" && paper !== "250") return null;
   if (lamination !== "none" && lamination !== "matte" && lamination !== "gloss") return null;
@@ -197,7 +201,30 @@ function parseExtras(rawValue: unknown): PrintExtraOptions | null {
   if (backCover !== "transparent" && backCover !== "leather") return null;
   if (staple !== "none" && staple !== "left" && staple !== "right") return null;
 
-  return { paper, lamination, laminationThickness, binding, frontCover, backCover, staple };
+  /*
+   * Старые вкладки не присылают coverSet и photoFit. Восстанавливаем набор
+   * обложек из прошлого поведения (обе) и считаем кадр обрезанным по умолчанию.
+   */
+  const normalizedCoverSet: CoverSet =
+    coverSet === "none" || coverSet === "front" || coverSet === "back" || coverSet === "both"
+      ? coverSet
+      : binding
+        ? "both"
+        : "none";
+
+  const normalizedPhotoFit: PhotoFit = photoFit === "contain" ? "contain" : "crop";
+
+  return {
+    paper,
+    lamination,
+    laminationThickness,
+    binding,
+    coverSet: normalizedCoverSet,
+    frontCover,
+    backCover,
+    staple,
+    photoFit: normalizedPhotoFit,
+  };
 }
 
 function parseFileSettings(
@@ -551,18 +578,41 @@ export async function POST(request: Request) {
         ? getPrintablePageOptions(item.pageCount, { copies: item.settings.copies, printSides: item.settings.printSides, defaults: { paperFormat: item.settings.paperFormat, colorMode: item.settings.colorMode }, pageOverrides: item.settings.pageOverrides })
         : [{ paperFormat: item.settings.paperFormat, colorMode: item.settings.colorMode }];
 
-      const pricing = getPrintPriceForPages({
-        pageOptions,
-        printSides: item.settings.printSides,
-        copies: item.settings.copies,
-      });
+      /*
+       * Фотографии считаются по прайсу фотопечати 10×15 — за отпечаток,
+       * а не за страницу A4. Логика должна совпадать с браузером.
+       */
+      const pricing =
+        item.kind === "image"
+          ? (() => {
+              const photoPricing = getPhotoPriceForCount(item.settings.copies);
+
+              return {
+                ...getPrintPriceForPages({
+                  pageOptions: [{ paperFormat: item.settings.paperFormat, colorMode: item.settings.colorMode }],
+                  printSides: "one-sided",
+                  copies: item.settings.copies,
+                }),
+                totalPrice: photoPricing.totalPrice,
+                quantity: photoPricing.quantity,
+                physicalSheetQuantity: photoPricing.quantity,
+                sheetsPerCopy: 1,
+              };
+            })()
+          : getPrintPriceForPages({
+              pageOptions,
+              printSides: item.settings.printSides,
+              copies: item.settings.copies,
+            });
 
       /*
        * Сумма доп. опций считается той же функцией, что и в браузере, —
        * иначе клиент увидел бы одну цену, а заказ создался бы с другой.
        */
       const extrasPricing = getExtrasPrice({
-        extras: item.settings.extras,
+        /* У фотобумаги своя цена: надбавка за плотность к фотопечати не применяется. */
+        extras:
+          item.kind === "image" ? { ...item.settings.extras, paper: "80" } : item.settings.extras,
         pageOptions,
         printSides: item.settings.printSides,
         copies: item.settings.copies,

@@ -12,6 +12,15 @@ export type PaperDensity = "80" | "120" | "250";
 export type LaminationType = "none" | "matte" | "gloss";
 export type LaminationThickness = "80" | "120";
 export type CoverType = "transparent" | "leather";
+
+/*
+ * Обложки при переплёте. Их может не быть вовсе, только передняя или только
+ * задняя — раньше пара была обязательной, и это расходилось с реальными заказами.
+ */
+export type CoverSet = "none" | "front" | "back" | "both";
+
+/* Как вписать снимок в лист фотобумаги. */
+export type PhotoFit = "crop" | "contain";
 export type StapleSide = "none" | "left" | "right";
 
 export type PrintExtraOptions = {
@@ -19,9 +28,12 @@ export type PrintExtraOptions = {
   lamination: LaminationType;
   laminationThickness: LaminationThickness;
   binding: boolean;
+  coverSet: CoverSet;
   frontCover: CoverType;
   backCover: CoverType;
   staple: StapleSide;
+  /* Влияет только на фотопечать, для документов игнорируется. */
+  photoFit: PhotoFit;
 };
 
 export const DEFAULT_PRINT_EXTRA_OPTIONS: PrintExtraOptions = {
@@ -29,9 +41,11 @@ export const DEFAULT_PRINT_EXTRA_OPTIONS: PrintExtraOptions = {
   lamination: "none",
   laminationThickness: "80",
   binding: false,
+  coverSet: "none",
   frontCover: "transparent",
   backCover: "transparent",
   staple: "none",
+  photoFit: "crop",
 };
 
 /* Цена ламинации за лист, руб. Зависит от формата листа и плотности плёнки. */
@@ -71,6 +85,24 @@ export type ExtrasPriceBreakdown = {
   staple: number;
   total: number;
 };
+
+/*
+ * Фотопечать считается отдельно от «страниц»: цена зависит от числа отпечатков.
+ * Возвращаем разбивку в том же виде, чтобы UI не ветвился.
+ */
+export function getPhotoExtrasPrice({
+  quantity,
+  unitPrice,
+}: {
+  quantity: number;
+  unitPrice: number;
+}) {
+  return {
+    quantity,
+    unitPrice,
+    total: quantity * unitPrice,
+  };
+}
 
 /*
  * Ламинируется физический лист, а не страница: при двусторонней печати две
@@ -126,9 +158,18 @@ export function getExtrasPrice({
           sheetsPerCopy.A3 * LAMINATION_PRICE_PER_SHEET.A3[extras.laminationThickness]) *
         validCopies;
 
-  /* Пружина и обложки имеют смысл только вместе: передняя и задняя по 50 ₽. */
+  /*
+   * Пружина нужна всегда, когда включён переплёт. Обложек может быть ноль,
+   * одна (передняя или задняя) или две — считается каждая по отдельности.
+   */
   const binding = extras.binding ? BINDING_PRICE : 0;
-  const covers = extras.binding ? COVER_PRICE * 2 : 0;
+  const coverCount =
+    !extras.binding || extras.coverSet === "none"
+      ? 0
+      : extras.coverSet === "both"
+        ? 2
+        : 1;
+  const covers = coverCount * COVER_PRICE;
 
   /* Степлер несовместим с переплётом. */
   const staple = !extras.binding && extras.staple !== "none" ? STAPLE_PRICE : 0;
@@ -152,7 +193,17 @@ export function getExtrasSummary(extras: PrintExtraOptions) {
   if (extras.lamination !== "none") {
     parts.push(`Ламинация ${extras.lamination === "matte" ? "матовая" : "глянцевая"} ${extras.laminationThickness} мкр`);
   }
-  if (extras.binding) parts.push("Переплёт на пружину");
+  if (extras.binding) {
+    const covers =
+      extras.coverSet === "both"
+        ? "две обложки"
+        : extras.coverSet === "front"
+          ? "передняя обложка"
+          : extras.coverSet === "back"
+            ? "задняя обложка"
+            : "без обложек";
+    parts.push(`Переплёт на пружину (${covers})`);
+  }
   if (extras.staple !== "none") parts.push(`Степлер (${extras.staple === "left" ? "левый" : "правый"} угол)`);
 
   return parts.join(" · ");

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import { COLOR_PRICE_TIERS, PRINT_PRICE_TIERS } from "@/lib/pricing";
+import { COLOR_PRICE_TIERS, PHOTO_PRICE_TIERS, PRINT_PRICE_TIERS } from "@/lib/pricing";
 import {
   BINDING_PRICE,
   COVER_PRICE,
@@ -212,6 +212,15 @@ export default function PricesPage() {
         />
 
         <PriceTable
+          title="Фотопечать 10×15 (A6)"
+          description="Цена за один отпечаток на фотобумаге. Чем больше отпечатков в заказе, тем ниже цена — скидка считается по общему количеству."
+          columns={["Количество отпечатков", "Цена за штуку"]}
+          rows={PHOTO_PRICE_TIERS.map((tier) => ({
+            cells: [tier.label, `${tier.pricePerPhoto} ₽`],
+          }))}
+        />
+
+        <PriceTable
           title="Ламинация"
           description="Ламинируется каждый физический лист. При двусторонней печати две страницы лежат на одном листе — плёнка нужна одна."
           columns={["Плотность плёнки", "A4, за лист", "A3, за лист"]}
@@ -228,6 +237,8 @@ export default function PricesPage() {
           rows={[
             { cells: ["Переплёт на металлическую пружину", `${BINDING_PRICE} ₽`], note: "За документ, объём не важен" },
             { cells: ["Обложка, передняя или задняя", `${COVER_PRICE} ₽`], note: "Прозрачная или тиснение под кожу" },
+            { cells: ["Пружина без обложек", `${BINDING_PRICE} ₽`], note: "Листы на пружине, обложек нет" },
+            { cells: ["Пружина и одна обложка", `${BINDING_PRICE + COVER_PRICE} ₽`], note: "Передняя или задняя — на выбор" },
             { cells: ["Комплект: пружина и две обложки", `${BINDING_PRICE + COVER_PRICE * 2} ₽`], note: "Самый частый вариант", highlight: true },
             { cells: ["Скрепление степлером в углу", `${STAPLE_PRICE} ₽`], note: "Левый или правый угол, до 30 листов" },
           ]}
@@ -237,6 +248,7 @@ export default function PricesPage() {
           <h2 className="text-lg font-black text-slate-950">Как считается итог</h2>
           <ol className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
             <li><span className="font-bold">1.</span> Печать: страницы × тариф по объёму × копии. Для A3 тариф удваивается.</li>
+            <li><span className="font-bold">1а.</span> Фото 10×15: количество отпечатков × цена за штуку по объёму.</li>
             <li><span className="font-bold">2.</span> Бумага: к печати добавляется 10% за 120 г/м² или 20% за 250 г/м².</li>
             <li><span className="font-bold">3.</span> Ламинация: число физических листов × цена плёнки × копии.</li>
             <li><span className="font-bold">4.</span> Переплёт и обложки: фиксированная сумма за документ.</li>

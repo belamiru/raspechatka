@@ -30,9 +30,11 @@ type OrderFile = {
     lamination: string;
     laminationThickness: string;
     binding: boolean;
+    coverSet?: string;
     frontCover: string;
     backCover: string;
     staple: string;
+    photoFit?: string;
   } | null;
 };
 
@@ -180,10 +182,26 @@ function getPrintExtrasLines(extras: OrderFile["printExtras"]) {
   if (extras.binding) {
     const front = extras.frontCover === "leather" ? "тиснение" : "прозрачная";
     const back = extras.backCover === "leather" ? "тиснение" : "прозрачная";
-    lines.push(`Переплёт на пружину · передняя: ${front} · задняя: ${back}`);
+
+    /* Набор обложек: их может не быть, быть одна или обе. */
+    const coverSet =
+      extras.coverSet === "both"
+        ? `передняя: ${front} · задняя: ${back}`
+        : extras.coverSet === "front"
+          ? `передняя: ${front}`
+          : extras.coverSet === "back"
+            ? `задняя: ${back}`
+            : "без обложек";
+
+    lines.push(`Переплёт на пружину · ${coverSet}`);
   }
   if (extras.staple !== "none") {
     lines.push(`Степлер: ${extras.staple === "left" ? "левый угол" : "правый угол"}`);
+  }
+  if (extras.photoFit === "contain") {
+    lines.push("Кадр: вписан целиком, с белыми полями");
+  } else if (extras.photoFit === "crop") {
+    lines.push("Кадр: заполнен с обрезкой краёв");
   }
 
   return lines;

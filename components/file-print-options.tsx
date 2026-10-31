@@ -48,11 +48,11 @@ export type PrintKindId = (typeof PRINT_KINDS)[number]["id"];
  */
 const OPTION_GROUPS: Record<PrintKindId, readonly OptionGroupId[]> = {
   document: ["paper", "lamination", "binding", "staple"],
-  photo: ["paper", "lamination"],
+  photo: ["photoFit", "lamination"],
   poster: ["lamination"],
 };
 
-type OptionGroupId = "paper" | "lamination" | "binding" | "staple";
+type OptionGroupId = "paper" | "lamination" | "binding" | "staple" | "photoFit";
 
 /* Кнопка «?» с подсказкой: работает по клику, поэтому годится и для телефона. */
 function Hint({ text, label }: { text: string; label: string }) {
@@ -218,7 +218,7 @@ export function PrintExtrasOptions({
   /* Расчёт стоимости доп. опций для этого файла; null, пока файл не готов. */
   price: ExtrasPriceBreakdown | null;
 }) {
-  const { paper, lamination, laminationThickness, binding, frontCover, backCover, staple } = value;
+  const { paper, lamination, laminationThickness, binding, coverSet, frontCover, backCover, staple, photoFit } = value;
 
   function change(changes: Partial<PrintExtraOptions>) {
     onChange({ ...value, ...changes });
@@ -349,31 +349,75 @@ export function PrintExtrasOptions({
           {binding && (
             <div className="ml-3 space-y-3 border-l-2 border-blue-100 pl-3">
               <ChoiceRow
-                label="Передняя обложка"
-                hint="Прозрачная показывает титульный лист. Тиснение под кожу выглядит строже и скрывает содержимое."
-                value={frontCover}
-                onChange={(next) => change({ frontCover: next })}
+                label="Обложки"
+                hint="Передняя обложка показывает титульный лист, задняя защищает последний. Переплёт можно заказать совсем без обложек, только с передней или только с задней."
+                value={coverSet}
+                onChange={(next) => change({ coverSet: next, ...(next === "none" ? {} : {}) })}
                 options={[
-                  { value: "transparent", label: "Прозрачная", note: `+${COVER_PRICE} ₽` },
-                  { value: "leather", label: "Тиснение", note: `+${COVER_PRICE} ₽` },
+                  { value: "none", label: "Без обложек" },
+                  { value: "front", label: "Передняя", note: `+${COVER_PRICE} ₽` },
+                  { value: "back", label: "Задняя", note: `+${COVER_PRICE} ₽` },
+                  { value: "both", label: "Обе", note: `+${COVER_PRICE * 2} ₽` },
                 ]}
               />
 
-              <ChoiceRow
-                label="Задняя обложка"
-                hint="Задняя обложка защищает последний лист. Тиснение под кожу даёт более аккуратный вид готовому документу."
-                value={backCover}
-                onChange={(next) => change({ backCover: next })}
-                options={[
-                  { value: "transparent", label: "Прозрачная", note: `+${COVER_PRICE} ₽` },
-                  { value: "leather", label: "Тиснение", note: `+${COVER_PRICE} ₽` },
-                ]}
-              />
+              {(coverSet === "front" || coverSet === "both") && (
+                <ChoiceRow
+                  label="Передняя обложка"
+                  hint="Прозрачная показывает титульный лист. Тиснение под кожу выглядит строже и скрывает содержимое."
+                  value={frontCover}
+                  onChange={(next) => change({ frontCover: next })}
+                  options={[
+                    { value: "transparent", label: "Прозрачная" },
+                    { value: "leather", label: "Тиснение" },
+                  ]}
+                />
+              )}
+
+              {(coverSet === "back" || coverSet === "both") && (
+                <ChoiceRow
+                  label="Задняя обложка"
+                  hint="Задняя обложка защищает последний лист. Тиснение под кожу даёт более аккуратный вид готовому документу."
+                  value={backCover}
+                  onChange={(next) => change({ backCover: next })}
+                  options={[
+                    { value: "transparent", label: "Прозрачная" },
+                    { value: "leather", label: "Тиснение" },
+                  ]}
+                />
+              )}
 
               <p className="text-xs leading-5 text-slate-500">
                 «Тиснение под кожу» — плотная фактурная обложка тёмного цвета.
               </p>
             </div>
+          )}
+        </div>
+      )}
+
+      {groups.includes("photoFit") && (
+        <div>
+          <ChoiceRow
+            label="Кадр фотографии"
+            hint="Фотобумага 10×15 имеет пропорцию 2:3, а снимок с телефона — другую. Нужно решить: обрезать края, чтобы заполнить лист, или оставить белые поля, сохранив весь кадр."
+            value={photoFit}
+            onChange={(next) => change({ photoFit: next })}
+            options={[
+              { value: "crop", label: "Заполнить кадр" },
+              { value: "contain", label: "Вписать целиком" },
+            ]}
+          />
+
+          {photoFit === "crop" ? (
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+              <strong>Заполнить кадр.</strong> Края снимка обрезаются под пропорцию фотобумаги: белых полей нет,
+              изображение занимает весь лист. Всё, что было у краёв, может обрезаться.
+            </p>
+          ) : (
+            <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900">
+              <strong>Вписать целиком.</strong> Снимок уменьшается так, чтобы поместиться полностью, а свободные
+              места остаются белыми. Ничего не обрезается, но по краям будут поля.
+            </p>
           )}
         </div>
       )}

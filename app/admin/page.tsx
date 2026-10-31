@@ -57,9 +57,11 @@ function normalizePrintExtras(raw: Record<string, unknown> | null) {
     lamination: typeof extras.lamination === "string" ? extras.lamination : "none",
     laminationThickness: typeof extras.laminationThickness === "string" ? extras.laminationThickness : "80",
     binding: extras.binding === true,
+    coverSet: typeof extras.coverSet === "string" ? extras.coverSet : "none",
     frontCover: typeof extras.frontCover === "string" ? extras.frontCover : "transparent",
     backCover: typeof extras.backCover === "string" ? extras.backCover : "transparent",
     staple: typeof extras.staple === "string" ? extras.staple : "none",
+    photoFit: typeof extras.photoFit === "string" ? extras.photoFit : undefined,
   };
 }
 

@@ -11,7 +11,7 @@ import {
 } from "@/lib/client-file-analysis";
 import { reachMetrikaGoal } from "@/lib/metrika";
 import { setPendingOrderFiles } from "@/lib/pending-order-files";
-import { getPrintPriceForPages, type PaperFormat, type PrintColorMode, type PrintSides } from "@/lib/pricing";
+import { getPhotoPriceForCount, getPrintPriceForPages, type PaperFormat, type PrintColorMode, type PrintSides } from "@/lib/pricing";
 
 const TELEGRAM_URL = "https://t.me/belami_ru";
 const MAX_URL = "https://max.ru/u/f9LHodD0cOJSiXthYzqOB1UCkuCYaObsZoaN6c_SgReZfE2QVGWuwChkOlE";
@@ -22,7 +22,7 @@ const MAX_URL = "https://max.ru/u/f9LHodD0cOJSiXthYzqOB1UCkuCYaObsZoaN6c_SgReZfE
  */
 const CATEGORY_TABS = [
   { id: "documents", label: "Документы", available: true },
-  { id: "photo", label: "Фото", available: false },
+  { id: "photo", label: "Фото", available: true },
   { id: "large-format", label: "Плакаты и чертежи", available: false },
 ] as const;
 
@@ -109,13 +109,16 @@ export function HomeOrderHero() {
    */
   const effectivePaperFormat: PaperFormat = isImage ? "A4" : paperFormat;
 
-  const totalPrice = isReady
-    ? getPrintPriceForPages({
-        pageOptions: Array.from({ length: pageCount }, () => ({ paperFormat: effectivePaperFormat, colorMode })),
-        printSides,
-        copies,
-      }).totalPrice
-    : 0;
+  /* Фотографии считаются по числу отпечатков 10×15, а не по страницам A4. */
+  const totalPrice = !isReady
+    ? 0
+    : isImage
+      ? getPhotoPriceForCount(copies).totalPrice
+      : getPrintPriceForPages({
+          pageOptions: Array.from({ length: pageCount }, () => ({ paperFormat: effectivePaperFormat, colorMode })),
+          printSides,
+          copies,
+        }).totalPrice;
 
   async function handleFiles(file: File | null) {
     if (!file) return;
