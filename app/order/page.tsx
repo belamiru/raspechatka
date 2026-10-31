@@ -32,6 +32,7 @@ import {
   type PrintExtraOptions,
   DEFAULT_PRINT_EXTRA_OPTIONS,
 } from "@/components/file-print-options";
+import { getExtrasPrice } from "@/lib/print-extras";
 import { takePendingOrderFiles } from "@/lib/pending-order-files";
 
 
@@ -125,10 +126,44 @@ export default function Home() {
     [readyFiles]
   );
 
+  /*
+   * Доп. опции считаются на файл: бумага даёт процент от цены печати,
+   * ламинация — за физический лист, переплёт и обложки — за документ.
+   */
+  const extrasPricings = useMemo(
+    () =>
+      readyFiles.map((file) => {
+        const settings = file.printSettings ?? DEFAULT_PRINT_SETTINGS;
+        const pdfPages = file.pageCount ?? 0;
+
+        return {
+          fileId: file.id,
+          price: getExtrasPrice({
+            extras: printExtras[file.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS,
+            pageOptions: file.kind === "document"
+              ? getPrintablePageOptions(pdfPages, settings)
+              : [{ paperFormat: settings.defaults.paperFormat, colorMode: settings.defaults.colorMode }],
+            printSides: file.kind === "image" ? "one-sided" : settings.printSides,
+            copies: settings.copies,
+            printPrice:
+              itemPricings.find((item) => item.file.id === file.id)?.pricing.totalPrice ?? 0,
+          }),
+        };
+      }),
+    [readyFiles, printExtras, itemPricings]
+  );
+
+  const extrasPriceById = useMemo(
+    () => Object.fromEntries(extrasPricings.map((item) => [item.fileId, item.price])),
+    [extrasPricings]
+  );
+
+  const extrasTotal = extrasPricings.reduce((total, item) => total + item.price.total, 0);
+
   const price = itemPricings.reduce(
     (total, item) => total + item.pricing.totalPrice,
     0
-  );
+  ) + extrasTotal;
 
   const documentsPrice = itemPricings
     .filter((item) => item.file.kind === "document")
@@ -152,12 +187,16 @@ export default function Home() {
   );
 
 
+  /* В карточке файла показываем полную сумму позиции: печать и доп. опции. */
   const filePrices = useMemo(
     () =>
       Object.fromEntries(
-        itemPricings.map((item) => [item.file.id, item.pricing.totalPrice])
+        itemPricings.map((item) => [
+          item.file.id,
+          item.pricing.totalPrice + (extrasPriceById[item.file.id]?.total ?? 0),
+        ])
       ) as Record<string, number>,
-    [itemPricings]
+    [itemPricings, extrasPriceById]
   );
 
   const totalSourceFileSize = files.reduce(
@@ -489,6 +528,9 @@ export default function Home() {
             printSides: item.kind === "image" ? "one-sided" : (item.printSettings?.printSides ?? "one-sided"),
             defaults: item.printSettings?.defaults ?? DEFAULT_PRINT_SETTINGS.defaults,
             pageOverrides: item.kind === "document" ? (item.printSettings?.pageOverrides ?? {}) : {},
+            /* Доп. опции уходят на сервер: сумму пересчитывает он, а не браузер. */
+            extras: printExtras[item.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS,
+            printKind: printKinds[item.id] ?? (item.kind === "image" ? "photo" : "document"),
           }))
         )
       );
@@ -634,7 +676,11 @@ export default function Home() {
                     <PrintExtrasOptions
                       key={item.id}
                       kind={printKind}
-                      initialOptions={printExtras[item.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS}
+                      value={printExtras[item.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS}
+                      onChange={(nextExtras) =>
+                        setPrintExtras((current) => ({ ...current, [item.id]: nextExtras }))
+                      }
+                      price={extrasPriceById[item.id] ?? null}
                       onApplyToAll={(extras) => {
                         const settings = item.printSettings ?? DEFAULT_PRINT_SETTINGS;
                         applyPrintSettingsToAll({
@@ -720,6 +766,13 @@ export default function Home() {
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-600">Печать фото и изображений</dt>
                   <dd className="font-semibold text-slate-900">{imagesPrice} ₽</dd>
+                </div>
+              )}
+
+              {extrasTotal > 0 && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-600">Дополнительные опции</dt>
+                  <dd className="font-semibold text-slate-900">{extrasTotal} ₽</dd>
                 </div>
               )}
 

@@ -5,6 +5,11 @@ import { validateSupportedFile, type FileKind } from "@/lib/converter";
 import { getDb } from "@/lib/db";
 import { uploadOrderFile } from "@/lib/yandex-disk";
 import { getPrintPriceForPages } from "@/lib/pricing";
+import {
+  DEFAULT_PRINT_EXTRA_OPTIONS,
+  getExtrasPrice,
+  type PrintExtraOptions,
+} from "@/lib/print-extras";
 import { calculateOrderParcel } from "@/lib/order-parcel";
 import { getPrintablePageCount, getPrintablePageOptions, type PagePrintOverride } from "@/lib/print-settings";
 import {
@@ -47,6 +52,7 @@ type SubmittedFileSettings = {
   copies: number;
   printSides: "one-sided" | "two-sided";
   pageOverrides: Record<number, PagePrintOverride>;
+  extras: PrintExtraOptions;
 };
 
 let schemaReady: Promise<void> | null = null;
@@ -132,6 +138,7 @@ function ensureSchema() {
 
       await db.query(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS printable_page_count INTEGER;`);
       await db.query(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS page_overrides JSONB NOT NULL DEFAULT '{}'::jsonb;`);
+      await db.query(`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS print_extras JSONB NOT NULL DEFAULT '{}'::jsonb;`);
       await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_width_mm INTEGER;`);
       await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_length_mm INTEGER;`);
       await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_height_mm INTEGER;`);
@@ -157,6 +164,40 @@ function textValue(formData: FormData, name: string) {
   const value = formData.get(name);
 
   return typeof value === "string" ? value.trim() : "";
+}
+
+/*
+ * Доп. опции приходят с клиента, поэтому проверяем каждое поле: значение вне
+ * списка отклоняет заказ, а не тихо подменяется на дефолт.
+ */
+function parseExtras(rawValue: unknown): PrintExtraOptions | null {
+  /* Старые вкладки могут не присылать блок — считаем настройки базовыми. */
+  if (rawValue === undefined || rawValue === null) {
+    return DEFAULT_PRINT_EXTRA_OPTIONS;
+  }
+
+  if (typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    return null;
+  }
+
+  const value = rawValue as Record<string, unknown>;
+  const paper = value.paper;
+  const lamination = value.lamination;
+  const laminationThickness = value.laminationThickness;
+  const binding = value.binding;
+  const frontCover = value.frontCover;
+  const backCover = value.backCover;
+  const staple = value.staple;
+
+  if (paper !== "80" && paper !== "120" && paper !== "250") return null;
+  if (lamination !== "none" && lamination !== "matte" && lamination !== "gloss") return null;
+  if (laminationThickness !== "80" && laminationThickness !== "120") return null;
+  if (typeof binding !== "boolean") return null;
+  if (frontCover !== "transparent" && frontCover !== "leather") return null;
+  if (backCover !== "transparent" && backCover !== "leather") return null;
+  if (staple !== "none" && staple !== "left" && staple !== "right") return null;
+
+  return { paper, lamination, laminationThickness, binding, frontCover, backCover, staple };
 }
 
 function parseFileSettings(
@@ -260,6 +301,12 @@ function parseFileSettings(
       };
     }
 
+    const parsedExtras = parseExtras(value.extras);
+
+    if (!parsedExtras) {
+      return { valid: false, error: "Выбраны некорректные дополнительные опции печати." };
+    }
+
     fileIds.add(fileId);
 
     settings.push({
@@ -269,6 +316,7 @@ function parseFileSettings(
       copies,
       printSides,
       pageOverrides,
+      extras: parsedExtras,
     });
   }
 
@@ -498,19 +546,34 @@ export async function POST(request: Request) {
       preparedItems.push({ kind: "document", draft, pageCount: draft.pageCount, settings });
     }
 
-    const pricedItems = preparedItems.map((item) => ({
-      ...item,
-      pricing: getPrintPriceForPages({
-        pageOptions: item.kind === "document"
-          ? getPrintablePageOptions(item.pageCount, { copies: item.settings.copies, printSides: item.settings.printSides, defaults: { paperFormat: item.settings.paperFormat, colorMode: item.settings.colorMode }, pageOverrides: item.settings.pageOverrides })
-          : [{ paperFormat: item.settings.paperFormat, colorMode: item.settings.colorMode }],
+    const pricedItems = preparedItems.map((item) => {
+      const pageOptions = item.kind === "document"
+        ? getPrintablePageOptions(item.pageCount, { copies: item.settings.copies, printSides: item.settings.printSides, defaults: { paperFormat: item.settings.paperFormat, colorMode: item.settings.colorMode }, pageOverrides: item.settings.pageOverrides })
+        : [{ paperFormat: item.settings.paperFormat, colorMode: item.settings.colorMode }];
+
+      const pricing = getPrintPriceForPages({
+        pageOptions,
         printSides: item.settings.printSides,
         copies: item.settings.copies,
-      }),
-    }));
+      });
+
+      /*
+       * Сумма доп. опций считается той же функцией, что и в браузере, —
+       * иначе клиент увидел бы одну цену, а заказ создался бы с другой.
+       */
+      const extrasPricing = getExtrasPrice({
+        extras: item.settings.extras,
+        pageOptions,
+        printSides: item.settings.printSides,
+        copies: item.settings.copies,
+        printPrice: pricing.totalPrice,
+      });
+
+      return { ...item, pricing, extrasPricing };
+    });
 
     const totalPrice = pricedItems.reduce(
-      (total, item) => total + item.pricing.totalPrice,
+      (total, item) => total + item.pricing.totalPrice + item.extrasPricing.total,
       0
     );
     const orderNumber = createOrderNumber();
@@ -650,12 +713,14 @@ export async function POST(request: Request) {
               print_sides,
               unit_price,
               side_multiplier,
-              item_total
+              item_total,
+              print_extras
             )
             VALUES (
               $1, $2, $3, $4, $5,
               $6, $7, $8, $9,
-              $10, $11, $12, $13, $14, $15, $16, $17, $18
+              $10, $11, $12, $13, $14, $15, $16, $17, $18,
+              $19
             );
           `,
           [
@@ -676,7 +741,9 @@ export async function POST(request: Request) {
             item.settings.printSides,
             item.pricing.effectiveUnitPrice,
             item.pricing.sidesMultiplier,
-            item.pricing.totalPrice,
+            /* item_total включает доп. опции: это сумма позиции в заказе. */
+            item.pricing.totalPrice + item.extrasPricing.total,
+            JSON.stringify(item.settings.extras),
           ]
         );
       }

@@ -1,6 +1,17 @@
 "use client";
 
 import { useId, useState } from "react";
+import {
+  BINDING_PRICE,
+  COVER_PRICE,
+  LAMINATION_PRICE_PER_SHEET,
+  STAPLE_PRICE,
+  type ExtrasPriceBreakdown,
+  type PrintExtraOptions,
+} from "@/lib/print-extras";
+
+export type { PrintExtraOptions } from "@/lib/print-extras";
+export { DEFAULT_PRINT_EXTRA_OPTIONS } from "@/lib/print-extras";
 
 /*
  * Тип печати — свойство конкретного файла, а не всего заказа: в корзине могут
@@ -29,8 +40,6 @@ export const PRINT_KINDS = [
 
 export type PrintKindId = (typeof PRINT_KINDS)[number]["id"];
 
-export type PrintExtraOptions = { paper: "80" | "120" | "250"; lamination: "none" | "matte" | "gloss"; laminationThickness: "80" | "120"; binding: boolean; frontCover: "transparent" | "leather"; backCover: "transparent" | "leather"; staple: "none" | "left" | "right"; };
-export const DEFAULT_PRINT_EXTRA_OPTIONS: PrintExtraOptions = { paper: "80", lamination: "none", laminationThickness: "80", binding: false, frontCover: "transparent", backCover: "transparent", staple: "none" };
 
 /*
  * Какие группы дополнительных опций относятся к типу печати. Пока цены нет,
@@ -195,14 +204,25 @@ function ChoiceRow<T extends string>({
  * Дополнительные опции для одного файла. Набор зависит от типа печати,
  * но пока цены нет, выбор ни на что не влияет.
  */
-export function PrintExtrasOptions({ kind, initialOptions = DEFAULT_PRINT_EXTRA_OPTIONS, onApplyToAll }: { kind: PrintKindId; initialOptions?: PrintExtraOptions; onApplyToAll: (options: PrintExtraOptions) => void }) {
-  const [paper, setPaper] = useState<"80" | "120" | "250">(initialOptions.paper);
-  const [lamination, setLamination] = useState<"none" | "matte" | "gloss">(initialOptions.lamination);
-  const [laminationThickness, setLaminationThickness] = useState<"80" | "120">(initialOptions.laminationThickness);
-  const [binding, setBinding] = useState(initialOptions.binding);
-  const [frontCover, setFrontCover] = useState<"transparent" | "leather">(initialOptions.frontCover);
-  const [backCover, setBackCover] = useState<"transparent" | "leather">(initialOptions.backCover);
-  const [staple, setStaple] = useState<"none" | "left" | "right">(initialOptions.staple);
+export function PrintExtrasOptions({
+  kind,
+  value,
+  onChange,
+  onApplyToAll,
+  price,
+}: {
+  kind: PrintKindId;
+  value: PrintExtraOptions;
+  onChange: (nextValue: PrintExtraOptions) => void;
+  onApplyToAll: (options: PrintExtraOptions) => void;
+  /* Расчёт стоимости доп. опций для этого файла; null, пока файл не готов. */
+  price: ExtrasPriceBreakdown | null;
+}) {
+  const { paper, lamination, laminationThickness, binding, frontCover, backCover, staple } = value;
+
+  function change(changes: Partial<PrintExtraOptions>) {
+    onChange({ ...value, ...changes });
+  }
 
   const groups = OPTION_GROUPS[kind];
   const isLaminated = lamination !== "none";
@@ -211,13 +231,15 @@ export function PrintExtrasOptions({ kind, initialOptions = DEFAULT_PRINT_EXTRA_
     <div className="space-y-4 border-t border-slate-200 pt-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Дополнительные опции</p>
-        <p className="text-xs font-semibold text-slate-500">Скоро появятся цены</p>
+        {price && price.total > 0 && (
+          <p className="text-xs font-semibold text-slate-600">+{price.total} ₽</p>
+        )}
       </div>
 
       {kind !== "document" && (
         <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900">
-          Для типа «{PRINT_KINDS.find((item) => item.id === kind)?.label}» форматы и цены появятся
-          вместе с прайсом. Пока доступны только общие опции.
+          Для типа «{PRINT_KINDS.find((item) => item.id === kind)?.label}» форматы фотобумаги и плакатов
+          появятся позже. Сейчас доступны общие опции.
         </p>
       )}
 
@@ -227,11 +249,11 @@ export function PrintExtrasOptions({ kind, initialOptions = DEFAULT_PRINT_EXTRA_
             label="Бумага"
             hint="Плотность бумаги влияет на то, как лист держит форму и просвечивает ли при двусторонней печати."
             value={paper}
-            onChange={setPaper}
+            onChange={(next) => change({ paper: next })}
             options={[
               { value: "80", label: "80 г/м²", note: "офисная" },
-              { value: "120", label: "120 г/м²", note: "плотнее" },
-              { value: "250", label: "250 г/м²", note: "картон" },
+              { value: "120", label: "120 г/м²", note: "+10%" },
+              { value: "250", label: "250 г/м²", note: "+20%" },
             ]}
           />
 
@@ -252,7 +274,7 @@ export function PrintExtrasOptions({ kind, initialOptions = DEFAULT_PRINT_EXTRA_
           {paper === "250" && (
             <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900">
               250 г/м² — картон. Для обложек, грамот, визиток и приглашений.
-              Двусторонняя печать на таком листе недоступна.
+              К цене печати добавляется 20%.
             </p>
           )}
         </div>
@@ -264,7 +286,7 @@ export function PrintExtrasOptions({ kind, initialOptions = DEFAULT_PRINT_EXTRA_
             label="Ламинация"
             hint="Плёнка защищает лист от влаги, грязи и заломов. Матовая не бликует, глянцевая делает цвета ярче."
             value={lamination}
-            onChange={setLamination}
+            onChange={(next) => change({ lamination: next })}
             options={[
               { value: "none", label: "Без ламинации" },
               { value: "matte", label: "Матовая" },
@@ -277,11 +299,11 @@ export function PrintExtrasOptions({ kind, initialOptions = DEFAULT_PRINT_EXTRA_
               label="Плотность плёнки"
               hint="80 мкр — тонкая, для документов и справок. 120 мкр — жёстче, для удостоверений, меню и карточек."
               value={laminationThickness}
-              onChange={setLaminationThickness}
+              onChange={(next) => change({ laminationThickness: next })}
               disabled={!isLaminated}
               options={[
-                { value: "80", label: "80 мкр" },
-                { value: "120", label: "120 мкр" },
+                { value: "80", label: "80 мкр", note: `A4 ${LAMINATION_PRICE_PER_SHEET.A4["80"]} ₽ · A3 ${LAMINATION_PRICE_PER_SHEET.A3["80"]} ₽` },
+                { value: "120", label: "120 мкр", note: `A4 ${LAMINATION_PRICE_PER_SHEET.A4["120"]} ₽ · A3 ${LAMINATION_PRICE_PER_SHEET.A3["120"]} ₽` },
               ]}
             />
 
@@ -305,7 +327,7 @@ export function PrintExtrasOptions({ kind, initialOptions = DEFAULT_PRINT_EXTRA_
                   text="Пружина позволяет раскрывать документ на 180° и добавлять листы. Подходит для курсовых, отчётов и инструкций."
                 />
               </p>
-              <p className="mt-0.5 text-xs leading-4 text-slate-500">Раскрывается полностью, листы не выпадают</p>
+              <p className="mt-0.5 text-xs leading-4 text-slate-500">Раскрывается полностью · {BINDING_PRICE} ₽</p>
             </div>
 
             <button
@@ -313,7 +335,7 @@ export function PrintExtrasOptions({ kind, initialOptions = DEFAULT_PRINT_EXTRA_
               role="switch"
               aria-checked={binding}
               aria-label="Переплёт на металлическую пружину"
-              onClick={() => setBinding((current) => !current)}
+              onClick={() => change({ binding: !binding, ...(binding ? {} : { staple: "none" }) })}
               className={`relative mt-1 h-6 w-11 shrink-0 rounded-full transition ${binding ? "bg-blue-600" : "bg-slate-300"}`}
             >
               <span
@@ -330,10 +352,10 @@ export function PrintExtrasOptions({ kind, initialOptions = DEFAULT_PRINT_EXTRA_
                 label="Передняя обложка"
                 hint="Прозрачная показывает титульный лист. Тиснение под кожу выглядит строже и скрывает содержимое."
                 value={frontCover}
-                onChange={setFrontCover}
+                onChange={(next) => change({ frontCover: next })}
                 options={[
-                  { value: "transparent", label: "Прозрачная" },
-                  { value: "leather", label: "Тиснение" },
+                  { value: "transparent", label: "Прозрачная", note: `+${COVER_PRICE} ₽` },
+                  { value: "leather", label: "Тиснение", note: `+${COVER_PRICE} ₽` },
                 ]}
               />
 
@@ -341,10 +363,10 @@ export function PrintExtrasOptions({ kind, initialOptions = DEFAULT_PRINT_EXTRA_
                 label="Задняя обложка"
                 hint="Задняя обложка защищает последний лист. Тиснение под кожу даёт более аккуратный вид готовому документу."
                 value={backCover}
-                onChange={setBackCover}
+                onChange={(next) => change({ backCover: next })}
                 options={[
-                  { value: "transparent", label: "Прозрачная" },
-                  { value: "leather", label: "Тиснение" },
+                  { value: "transparent", label: "Прозрачная", note: `+${COVER_PRICE} ₽` },
+                  { value: "leather", label: "Тиснение", note: `+${COVER_PRICE} ₽` },
                 ]}
               />
 
@@ -362,12 +384,12 @@ export function PrintExtrasOptions({ kind, initialOptions = DEFAULT_PRINT_EXTRA_
             label="Скрепление степлером в углу"
             hint="Самый простой и быстрый способ. Подходит для документов до 30 листов, которые не нужно раскрывать полностью."
             value={staple}
-            onChange={setStaple}
+            onChange={(next) => change({ staple: next })}
             disabled={binding}
             options={[
               { value: "none", label: "Не нужно" },
-              { value: "left", label: "Левый угол" },
-              { value: "right", label: "Правый угол" },
+              { value: "left", label: "Левый угол", note: `+${STAPLE_PRICE} ₽` },
+              { value: "right", label: "Правый угол", note: `+${STAPLE_PRICE} ₽` },
             ]}
           />
 
@@ -379,7 +401,27 @@ export function PrintExtrasOptions({ kind, initialOptions = DEFAULT_PRINT_EXTRA_
         </div>
       )}
 
-      <button type="button" onClick={() => onApplyToAll({ paper, lamination, laminationThickness, binding, frontCover, backCover, staple })} className="w-full rounded-xl border border-blue-200 px-4 py-2.5 text-sm font-bold text-blue-700 transition hover:bg-blue-50">
+      {price && price.total > 0 && (
+        <dl className="mt-4 space-y-1.5 border-t border-slate-100 pt-3 text-xs text-slate-600">
+          {price.paperSurcharge > 0 && (
+            <div className="flex justify-between gap-3"><dt>Плотная бумага</dt><dd className="font-semibold">{price.paperSurcharge} ₽</dd></div>
+          )}
+          {price.lamination > 0 && (
+            <div className="flex justify-between gap-3"><dt>Ламинация, {price.laminationSheetsPerCopy} л.</dt><dd className="font-semibold">{price.lamination} ₽</dd></div>
+          )}
+          {price.binding > 0 && (
+            <div className="flex justify-between gap-3"><dt>Переплёт на пружину</dt><dd className="font-semibold">{price.binding} ₽</dd></div>
+          )}
+          {price.covers > 0 && (
+            <div className="flex justify-between gap-3"><dt>Обложки</dt><dd className="font-semibold">{price.covers} ₽</dd></div>
+          )}
+          {price.staple > 0 && (
+            <div className="flex justify-between gap-3"><dt>Скрепление степлером</dt><dd className="font-semibold">{price.staple} ₽</dd></div>
+          )}
+        </dl>
+      )}
+
+      <button type="button" onClick={() => onApplyToAll(value)} className="w-full rounded-xl border border-blue-200 px-4 py-2.5 text-sm font-bold text-blue-700 transition hover:bg-blue-50">
         Применить ко всем файлам заказа
       </button>
     </div>
