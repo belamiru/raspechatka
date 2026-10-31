@@ -39,7 +39,7 @@ const SERVICE_GROUPS: { title: string; links: { label: string; href: string }[] 
 ];
 
 const NAV_LINKS = [
-  { label: "Цены", href: "/#prices" },
+  { label: "Цены", href: "/prices" },
   { label: "Как заказать", href: "/#how-to-order" },
   { label: "Доставка", href: "/#delivery" },
   { label: "Контакты", href: "/#contacts" },

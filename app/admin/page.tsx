@@ -40,7 +40,28 @@ type OrderRow = {
   page_overrides: Record<string, { pageNumber: number; included?: boolean; paperFormat?: "A4" | "A3"; colorMode?: "black-and-white" | "color" | "solid-color" }> | null;
   copies: number | null;
   print_sides: string | null;
+  print_extras: Record<string, unknown> | null;
 };
+
+/*
+ * В базе доп. опции лежат как JSONB. Здесь приводим их к типу, чтобы админка
+ * не падала на старых заказах, где колонка пустая.
+ */
+function normalizePrintExtras(raw: Record<string, unknown> | null) {
+  if (!raw || typeof raw !== "object") return null;
+
+  const extras = raw as Record<string, unknown>;
+
+  return {
+    paper: typeof extras.paper === "string" ? extras.paper : "80",
+    lamination: typeof extras.lamination === "string" ? extras.lamination : "none",
+    laminationThickness: typeof extras.laminationThickness === "string" ? extras.laminationThickness : "80",
+    binding: extras.binding === true,
+    frontCover: typeof extras.frontCover === "string" ? extras.frontCover : "transparent",
+    backCover: typeof extras.backCover === "string" ? extras.backCover : "transparent",
+    staple: typeof extras.staple === "string" ? extras.staple : "none",
+  };
+}
 
 export default async function AdminPage() {
   const cookieStore = await cookies();
@@ -92,7 +113,8 @@ export default async function AdminPage() {
       order_items.printable_page_count,
       order_items.page_overrides,
       order_items.copies,
-      order_items.print_sides
+      order_items.print_sides,
+      order_items.print_extras
     FROM orders
     LEFT JOIN order_items ON order_items.order_id = orders.id
     ORDER BY orders.created_at DESC, order_items.id ASC;
@@ -134,6 +156,7 @@ export default async function AdminPage() {
         pageOverrides: Record<string, { pageNumber: number; included?: boolean; paperFormat?: "A4" | "A3"; colorMode?: "black-and-white" | "color" | "solid-color" }>;
         copies: number;
         printSides: string;
+        printExtras: ReturnType<typeof normalizePrintExtras>;
       }[];
     }
   >();
@@ -186,6 +209,7 @@ export default async function AdminPage() {
         pageOverrides: row.page_overrides ?? {},
         copies: row.copies ?? 0,
         printSides: row.print_sides ?? "one-sided",
+        printExtras: normalizePrintExtras(row.print_extras),
       });
     }
   }

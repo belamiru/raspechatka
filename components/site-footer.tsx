@@ -22,6 +22,13 @@ export function SiteFooter() {
 
           <nav className="mt-3 space-y-2 text-sm">
             <Link
+              href="/prices"
+              className="block text-slate-600 hover:text-blue-700"
+            >
+              Цены на печать
+            </Link>
+
+            <Link
               href="/services"
               className="block text-slate-600 hover:text-blue-700"
             >

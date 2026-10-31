@@ -25,6 +25,15 @@ type OrderFile = {
   pageOverrides: Record<string, { pageNumber: number; included?: boolean; paperFormat?: "A4" | "A3"; colorMode?: "black-and-white" | "color" | "solid-color" }>;
   copies: number;
   printSides: string;
+  printExtras: {
+    paper: string;
+    lamination: string;
+    laminationThickness: string;
+    binding: boolean;
+    frontCover: string;
+    backCover: string;
+    staple: string;
+  } | null;
 };
 
 type Order = {
@@ -152,6 +161,32 @@ function getA3Pages(file: OrderFile) {
     .filter((item) => item.included !== false && item.paperFormat === "A3")
     .map((item) => item.pageNumber)
     .sort((a, b) => a - b);
+}
+
+/*
+ * Доп. опции в админке: показываем только выбранное, чтобы карточка файла
+ * не раздувалась. Базовые значения (80 г/м², без ламинации) не выводим.
+ */
+function getPrintExtrasLines(extras: OrderFile["printExtras"]) {
+  if (!extras) return [];
+
+  const lines: string[] = [];
+
+  if (extras.paper !== "80") lines.push(`Бумага ${extras.paper} г/м²`);
+  if (extras.lamination !== "none") {
+    const type = extras.lamination === "matte" ? "матовая" : "глянцевая";
+    lines.push(`Ламинация ${type} ${extras.laminationThickness} мкр`);
+  }
+  if (extras.binding) {
+    const front = extras.frontCover === "leather" ? "тиснение" : "прозрачная";
+    const back = extras.backCover === "leather" ? "тиснение" : "прозрачная";
+    lines.push(`Переплёт на пружину · передняя: ${front} · задняя: ${back}`);
+  }
+  if (extras.staple !== "none") {
+    lines.push(`Степлер: ${extras.staple === "left" ? "левый угол" : "правый угол"}`);
+  }
+
+  return lines;
 }
 
 export default function AdminOrders({
@@ -557,6 +592,10 @@ export default function AdminOrders({
                                 </p>
                               )}
                               {getColorPages(file, "color").length > 0 && <p className="mt-1 text-sm font-bold text-blue-800">Цветные: стр. {getColorPages(file, "color").join(", ")}</p>}
+
+                              {getPrintExtrasLines(file.printExtras).map((line) => (
+                                <p key={line} className="mt-1 text-sm font-bold text-violet-800">{line}</p>
+                              ))}
                             </div>
 
                             {file.diskPath ? (

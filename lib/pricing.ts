@@ -1,7 +1,7 @@
 export type PaperFormat = "A4" | "A3";
 export type PrintSides = "one-sided" | "two-sided";
 
-type PriceTier = {
+export type PriceTier = {
   from: number;
   to: number | null;
   a4OneSidedPrice: number;
@@ -140,14 +140,18 @@ export type PrintColorMode = "black-and-white" | "color";
 type LegacyPrintColorMode = PrintColorMode | "solid-color";
 export type PagePrintOption = { paperFormat: PaperFormat; colorMode: LegacyPrintColorMode };
 
-type ColorPriceTier = PriceTier & { colorA4: number };
+export type ColorPriceTier = PriceTier & { colorA4: number };
 
 /*
  * All print categories use the same volume breaks as black-and-white printing.
  * A3 remains exactly twice the A4 price. Keep these ranges in sync with
  * PRICE_TIERS and the public tables on the home page.
  */
-const COLOR_PRICE_TIERS: ColorPriceTier[] = [
+/*
+ * Тарифы цветной печати публикуются на /prices, поэтому список экспортируется.
+ * Любое изменение здесь сразу меняет и калькулятор, и страницу цен.
+ */
+export const COLOR_PRICE_TIERS: ColorPriceTier[] = [
   { from: 1, to: 10, a4OneSidedPrice: 20, colorA4: 40, label: "1–10 страниц" },
   { from: 11, to: 25, a4OneSidedPrice: 18, colorA4: 36, label: "11–25 страниц" },
   { from: 26, to: 75, a4OneSidedPrice: 16, colorA4: 32, label: "26–75 страниц" },
