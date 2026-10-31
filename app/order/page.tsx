@@ -29,6 +29,8 @@ import {
   PrintExtrasOptions,
   PrintKindSelector,
   type PrintKindId,
+  type PrintExtraOptions,
+  DEFAULT_PRINT_EXTRA_OPTIONS,
 } from "@/components/file-print-options";
 import { takePendingOrderFiles } from "@/lib/pending-order-files";
 
@@ -67,6 +69,7 @@ export default function Home() {
 
   /* Тип печати задаётся для каждого файла: корзина бывает смешанной. */
   const [printKinds, setPrintKinds] = useState<Record<string, PrintKindId>>({});
+  const [printExtras, setPrintExtras] = useState<Record<string, PrintExtraOptions>>({});
 
   const [website, setWebsite] = useState("");
 
@@ -626,10 +629,22 @@ export default function Home() {
                       selectedFile={item}
                       selectedFilePrice={filePrices[item.id] ?? null}
                       onPrintSettingsChange={changeFilePrintSettings}
-                      onApplyToAll={applyPrintSettingsToAll}
                     />
 
-                    <PrintExtrasOptions kind={printKind} />
+                    <PrintExtrasOptions
+                      key={item.id}
+                      kind={printKind}
+                      initialOptions={printExtras[item.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS}
+                      onApplyToAll={(extras) => {
+                        const settings = item.printSettings ?? DEFAULT_PRINT_SETTINGS;
+                        applyPrintSettingsToAll({
+                          ...settings,
+                          pageOverrides: {},
+                        });
+                        setPrintKinds(Object.fromEntries(files.map((file) => [file.id, printKind])) as Record<string, PrintKindId>);
+                        setPrintExtras(Object.fromEntries(files.map((file) => [file.id, extras])) as Record<string, PrintExtraOptions>);
+                      }}
+                    />
                   </div>
                 );
               }}

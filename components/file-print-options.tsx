@@ -29,6 +29,9 @@ export const PRINT_KINDS = [
 
 export type PrintKindId = (typeof PRINT_KINDS)[number]["id"];
 
+export type PrintExtraOptions = { paper: "80" | "120" | "250"; lamination: "none" | "matte" | "gloss"; laminationThickness: "80" | "120"; binding: boolean; frontCover: "transparent" | "leather"; backCover: "transparent" | "leather"; staple: "none" | "left" | "right"; };
+export const DEFAULT_PRINT_EXTRA_OPTIONS: PrintExtraOptions = { paper: "80", lamination: "none", laminationThickness: "80", binding: false, frontCover: "transparent", backCover: "transparent", staple: "none" };
+
 /*
  * Какие группы дополнительных опций относятся к типу печати. Пока цены нет,
  * наборы одинаковые по смыслу, но карта уже задаёт зависимость: когда появятся
@@ -192,14 +195,14 @@ function ChoiceRow<T extends string>({
  * Дополнительные опции для одного файла. Набор зависит от типа печати,
  * но пока цены нет, выбор ни на что не влияет.
  */
-export function PrintExtrasOptions({ kind }: { kind: PrintKindId }) {
-  const [paper, setPaper] = useState<"80" | "120" | "250">("80");
-  const [lamination, setLamination] = useState<"none" | "matte" | "gloss">("none");
-  const [laminationThickness, setLaminationThickness] = useState<"80" | "120">("80");
-  const [binding, setBinding] = useState(false);
-  const [frontCover, setFrontCover] = useState<"transparent" | "leather">("transparent");
-  const [backCover, setBackCover] = useState<"transparent" | "leather">("transparent");
-  const [staple, setStaple] = useState<"none" | "left" | "right">("none");
+export function PrintExtrasOptions({ kind, initialOptions = DEFAULT_PRINT_EXTRA_OPTIONS, onApplyToAll }: { kind: PrintKindId; initialOptions?: PrintExtraOptions; onApplyToAll: (options: PrintExtraOptions) => void }) {
+  const [paper, setPaper] = useState<"80" | "120" | "250">(initialOptions.paper);
+  const [lamination, setLamination] = useState<"none" | "matte" | "gloss">(initialOptions.lamination);
+  const [laminationThickness, setLaminationThickness] = useState<"80" | "120">(initialOptions.laminationThickness);
+  const [binding, setBinding] = useState(initialOptions.binding);
+  const [frontCover, setFrontCover] = useState<"transparent" | "leather">(initialOptions.frontCover);
+  const [backCover, setBackCover] = useState<"transparent" | "leather">(initialOptions.backCover);
+  const [staple, setStaple] = useState<"none" | "left" | "right">(initialOptions.staple);
 
   const groups = OPTION_GROUPS[kind];
   const isLaminated = lamination !== "none";
@@ -375,6 +378,10 @@ export function PrintExtrasOptions({ kind }: { kind: PrintKindId }) {
           </p>
         </div>
       )}
+
+      <button type="button" onClick={() => onApplyToAll({ paper, lamination, laminationThickness, binding, frontCover, backCover, staple })} className="w-full rounded-xl border border-blue-200 px-4 py-2.5 text-sm font-bold text-blue-700 transition hover:bg-blue-50">
+        Применить ко всем файлам заказа
+      </button>
     </div>
   );
 }

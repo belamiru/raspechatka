@@ -14,6 +14,7 @@ import { setPendingOrderFiles } from "@/lib/pending-order-files";
 import { getPrintPriceForPages, type PaperFormat, type PrintColorMode, type PrintSides } from "@/lib/pricing";
 
 const TELEGRAM_URL = "https://t.me/belami_ru";
+const MAX_URL = "https://max.ru/u/f9LHodD0cOJSiXthYzqOB1UCkuCYaObsZoaN6c_SgReZfE2QVGWuwChkOlE";
 
 /*
  * Вкладки категорий. Кроме «Документов» остальные пока выключены: включить их
@@ -29,19 +30,10 @@ type CategoryId = (typeof CATEGORY_TABS)[number]["id"];
 
 /* Плотности бумаги: пока одна, список готов к расширению вместе с прайсом. */
 const PAPER_OPTIONS = [
-  { value: "80", label: "Обычная (80 г/м²)", available: true },
-  { value: "200", label: "Плотная (200 г/м²)", available: false },
+  { value: "80", label: "80 г/м² — офисная" },
+  { value: "120", label: "120 г/м² — плотнее" },
+  { value: "250", label: "250 г/м² — картон" },
 ] as const;
-
-const COPY_OPTIONS = Array.from({ length: 50 }, (_, index) => index + 1);
-
-function getCopiesLabel(copies: number) {
-  const mod10 = copies % 10;
-  const mod100 = copies % 100;
-  if (mod10 === 1 && mod100 !== 11) return "копия";
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "копии";
-  return "копий";
-}
 
 function getPagesLabel(pages: number) {
   const mod10 = pages % 10;
@@ -67,6 +59,14 @@ type UploadedFile = {
 
 function makeFileId() {
   return `file-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function TelegramIcon() {
+  return <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M21.9 4.3 18.7 19.5c-.2 1-.9 1.3-1.8.8l-4.9-3.6-2.4 2.3c-.3.3-.5.5-1 .5l.4-5 9.1-8.2c.4-.4-.1-.5-.6-.2L6.2 13 1.4 11.5c-1-.3-1-1 .2-1.5L20.4 2.8c.9-.3 1.6.2 1.5 1.5Z" /></svg>;
+}
+
+function MaxIcon() {
+  return <img src="/max-logo.svg" width="18" height="18" alt="" aria-hidden="true" />;
 }
 
 function Spinner({ className = "" }: { className?: string }) {
@@ -453,53 +453,35 @@ export function HomeOrderHero() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-2">
-                <label className="sr-only" htmlFor="hero-format">Формат бумаги</label>
-                <select
-                  id="hero-format"
-                  value={paperFormat}
-                  disabled={isImage}
-                  onChange={(event) => setPaperFormat(event.target.value as PaperFormat)}                  className={controlClass}
-                >
-                  <option value="A4">A4</option>
-                  <option value="A3">A3 (×2)</option>
-                </select>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Формат</p>
+                  <div className="mt-1.5 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
+                    {(["A4", "A3"] as const).map((value) => {
+                      const isSelected = paperFormat === value;
+                      return <button key={value} type="button" disabled={isImage} title={value === "A3" ? "Лист A3 в два раза больше A4; цена печати рассчитывается как за две страницы A4." : undefined} aria-pressed={isSelected} onClick={() => setPaperFormat(value)} className={`rounded-lg px-2 py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${isSelected ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200" : "text-slate-600 hover:text-slate-900"}`}>{value}</button>;
+                    })}
+                  </div>
+                </div>
 
-                <label className="sr-only" htmlFor="hero-copies">Количество копий</label>
-                <select
-                  id="hero-copies"
-                  value={copies}
-                  onChange={(event) => setCopies(Number(event.target.value))}
-                  className={controlClass}
-                >
-                  {COPY_OPTIONS.map((value) => (
-                    <option key={value} value={value}>
-                      {value} {getCopiesLabel(value)}
-                    </option>
-                  ))}
-                </select>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Количество</p>
+                  <div className="mt-1.5 flex items-center overflow-hidden rounded-xl border border-slate-300 bg-white">
+                    <button type="button" onClick={() => setCopies((current) => Math.max(1, current - 1))} disabled={copies <= 1} className="flex h-10 w-10 items-center justify-center border-r border-slate-300 text-lg font-bold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300" aria-label="Уменьшить количество копий">−</button>
+                    <input type="text" inputMode="numeric" pattern="[0-9]*" value={copies} onChange={(event) => { const digits = event.target.value.replace(/\D/g, ""); if (digits === "") return; const next = Number(digits); if (next >= 1 && next <= 1000) setCopies(next); }} className="h-10 min-w-0 flex-1 bg-white text-center text-base font-bold text-slate-900 outline-none focus:bg-blue-50" aria-label="Количество копий" />
+                    <button type="button" onClick={() => setCopies((current) => Math.min(1000, current + 1))} className="flex h-10 w-10 items-center justify-center border-l border-slate-300 text-lg font-bold text-slate-700 transition hover:bg-slate-100" aria-label="Увеличить количество копий">+</button>
+                  </div>
+                </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-                <span className="text-sm font-semibold text-slate-800">Двусторонняя</span>
-
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={printSides === "two-sided"}
-                  disabled={isImage}
-                  onClick={() => setPrintSides((current) => (current === "two-sided" ? "one-sided" : "two-sided"))}
-                  className={`relative h-6 w-11 shrink-0 rounded-full transition ${
-                    printSides === "two-sided" ? "bg-blue-600" : "bg-slate-300"
-                  } disabled:cursor-not-allowed disabled:opacity-50`}
-                >
-                  <span className="sr-only">Двусторонняя печать</span>
-                  <span
-                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
-                      printSides === "two-sided" ? "left-[1.375rem]" : "left-0.5"
-                    }`}
-                  />
-                </button>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Стороны</p>
+                <div className="mt-1.5 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
+                  {([ ["one-sided", "Односторонняя"], ["two-sided", "Двусторонняя"] ] as const).map(([value, label]) => {
+                    const isSelected = printSides === value;
+                    return <button key={value} type="button" disabled={isImage && value === "two-sided"} aria-pressed={isSelected} onClick={() => setPrintSides(value)} className={`rounded-lg px-2 py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${isSelected ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200" : "text-slate-600 hover:text-slate-900"}`}>{label}</button>;
+                  })}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -511,7 +493,7 @@ export function HomeOrderHero() {
                   className={controlClass}
                 >
                   {PAPER_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value} disabled={!option.available}>
+                    <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
@@ -619,23 +601,31 @@ export function HomeOrderHero() {
                     Итого: <span className="text-xl font-black text-slate-900">{totalPrice} ₽</span>
                   </p>
 
-                  <button
-                    type="button"
-                    onClick={() => void handleSubmit()}
-                    disabled={isSubmitting || isAnalyzing}
-                    className="rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isSubmitting ? "Оформляем…" : "Оформить заказ"}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleSubmit()}
+                      disabled={isSubmitting || isAnalyzing}
+                      className="rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isSubmitting ? "Оформляем…" : "Оформить заказ"}
+                    </button>
+                    <Link href="/order" onClick={() => {
+                      if (uploaded && uploaded.status === "ready" && uploaded.pages) {
+                        setPendingOrderFiles([{ id: makeFileId(), file: uploaded.file, kind: uploaded.kind, pageCount: uploaded.pages, draftId: uploaded.draftId, previewUrl: null, printSettings: { copies, printSides: uploaded.kind === "image" ? "one-sided" : printSides, defaults: { paperFormat: effectivePaperFormat, colorMode }, pageOverrides: {} } }]);
+                      } else setPendingOrderFiles([]);
+                    }} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+                      Настроить доп. опции
+                    </Link>
+                  </div>
                 </div>
               )}
 
-              <p className="text-center text-xs leading-5 text-slate-500">
-                Нет файла?{" "}
-                <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-700 underline underline-offset-2">
-                  Напишите нам в Telegram
-                </a>
-              </p>
+              <div className="flex flex-wrap items-center justify-center gap-2 text-center text-xs leading-5 text-slate-500">
+                <span>Нужна помощь? Напиши нам в</span>
+                <a href={TELEGRAM_URL} target="_blank" rel="noopener noreferrer" aria-label="Написать в Telegram" className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-blue-700 transition hover:bg-blue-100"><TelegramIcon /></a>
+                <a href={MAX_URL} target="_blank" rel="noopener noreferrer" aria-label="Написать в Max" className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-50 text-blue-700 transition hover:bg-blue-100"><MaxIcon /></a>
+              </div>
             </div>
           </div>
 

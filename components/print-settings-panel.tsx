@@ -17,7 +17,6 @@ type PrintSettingsPanelProps = {
     fileId: string,
     settings: FilePrintSettings
   ) => void;
-  onApplyToAll: (settings: FilePrintSettings) => void;
 
   /*
    * inline — панель встроена в карточку файла: без своей рамки, без
@@ -40,7 +39,7 @@ function Segmented<T extends string>({
   onChange,
 }: {
   label: string;
-  options: { value: T; label: string; disabled?: boolean }[];
+  options: { value: T; label: string; disabled?: boolean; title?: string }[];
   value: T;
   onChange: (value: T) => void;
 }) {
@@ -58,6 +57,7 @@ function Segmented<T extends string>({
               key={option.value}
               type="button"
               disabled={option.disabled}
+              title={option.title}
               aria-pressed={isSelected}
               onClick={() => onChange(option.value)}
               className={`rounded-lg px-2 py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${
@@ -163,7 +163,6 @@ export function PrintSettingsPanel({
   selectedFile,
   selectedFilePrice,
   onPrintSettingsChange,
-  onApplyToAll,
   variant = "card",
 }: PrintSettingsPanelProps) {
   const isInline = variant === "inline";
@@ -197,13 +196,6 @@ export function PrintSettingsPanel({
     if (isImage) nextSettings.printSides = "one-sided";
 
     onPrintSettingsChange(selectedFile!.id, nextSettings);
-  }
-
-  function applyCurrentSettingsToAll() {
-    onApplyToAll({
-      ...settings,
-      printSides: isImage ? "one-sided" : settings.printSides,
-    });
   }
 
   return (
@@ -244,7 +236,7 @@ export function PrintSettingsPanel({
           value={settings.defaults.paperFormat}
           options={[
             { value: "A4", label: "A4" },
-            { value: "A3", label: "A3 (×2)" },
+            { value: "A3", label: "A3", title: "Лист A3 в два раза больше A4; цена печати рассчитывается как за две страницы A4." },
           ]}
           onChange={(paperFormat) => changeSettings({ defaults: { ...settings.defaults, paperFormat } })}
         />
@@ -294,14 +286,6 @@ export function PrintSettingsPanel({
       </div>
       )}
 
-      <button
-        type="button"
-        disabled={!isReady}
-        onClick={applyCurrentSettingsToAll}
-        className="mt-3 w-full rounded-xl border border-blue-200 px-4 py-2.5 text-sm font-bold text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-      >
-        Применить ко всем файлам
-      </button>
     </div>
   );
 }
