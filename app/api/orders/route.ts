@@ -157,6 +157,11 @@ function ensureSchema() {
       await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_height_mm INTEGER;`);
       await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_weight_grams INTEGER;`);
       await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS physical_sheet_count INTEGER;`);
+      /*
+       * Грузоместа сохраняем как JSON: в одном заказе их бывает несколько
+       * (плоская стопка + тубусы), а службам доставки нужны все.
+       */
+      await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_places JSONB;`);
     })().catch((error) => {
       schemaReady = null;
       throw error;
@@ -786,13 +791,29 @@ export async function POST(request: Request) {
       });
     }
 
+    /*
+     * Габариты считаются по типу печати: плакаты уезжают в тубусе отдельно
+     * от плоской стопки документов и фотографий.
+     */
     const parcel = calculateOrderParcel(
       pricedItems.map((item) => ({
+        kind: item.settings.printKind,
         pageCount: item.pageCount,
         copies: item.settings.copies,
         printSides: item.settings.printSides,
         paperFormat: item.settings.paperFormat,
         pageOverrides: item.settings.pageOverrides,
+        paper: item.settings.extras.paper,
+        photoFormat: item.settings.extras.photoFormat,
+        ...(item.settings.printKind === "poster"
+          ? {
+              poster: {
+                paperId: item.settings.extras.posterPaper,
+                widthMm: item.settings.extras.posterWidthMm,
+                heightMm: item.settings.extras.posterHeightMm,
+              },
+            }
+          : {}),
       }))
     );
     if (!parcel) {
@@ -848,9 +869,10 @@ export async function POST(request: Request) {
             package_length_mm,
             package_height_mm,
             package_weight_grams,
-            physical_sheet_count
+            physical_sheet_count,
+            package_places
           )
-          VALUES ($1, '', '', NULL, NULL, 'pickup', 'awaiting_checkout', $2, $2, $3, $4, $5, $6, $7, $8)
+          VALUES ($1, '', '', NULL, NULL, 'pickup', 'awaiting_checkout', $2, $2, $3, $4, $5, $6, $7, $8, $9)
           RETURNING id;
         `,
         [
@@ -862,6 +884,7 @@ export async function POST(request: Request) {
           parcel.heightMm,
           parcel.weightGrams,
           parcel.physicalSheetCount,
+          JSON.stringify(parcel.places),
         ]
       );
 

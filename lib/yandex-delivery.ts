@@ -3,6 +3,17 @@ const YANDEX_DELIVERY_CREATE_API = "https://b2b-authproxy.taxi.yandex.net/api/b2
 export const YANDEX_DELIVERY_SOURCE_PLATFORM_STATION_ID = "019e06631c07764c8cf4bc2ede9c2284";
 
 type Package = { weightGrams: number; widthMm: number; lengthMm: number; heightMm: number };
+
+/*
+ * Одно грузоместо. Заказ может уехать несколькими местами: плоская стопка
+ * и тубусы с плакатами упаковываются отдельно.
+ */
+export type DeliveryPlace = {
+  weightGrams: number;
+  widthMm: number;
+  lengthMm: number;
+  heightMm: number;
+};
 type Recipient = { name: string; phone: string; email: string | null };
 
 function toCentimeters(mm: number) { return Math.max(1, Math.ceil(mm / 10)); }
@@ -38,12 +49,21 @@ function recipientInfo(recipient: Recipient) {
   };
 }
 
-export async function calculateYandexPickupDelivery({ pickupPointId, printPriceRubles, package: parcel }: {
+export async function calculateYandexPickupDelivery({ pickupPointId, printPriceRubles, package: parcel, places }: {
   pickupPointId: string; printPriceRubles: number; package: Package;
+  /* Все грузоместа: плакаты едут тубусом отдельно от стопки. */
+  places?: DeliveryPlace[];
 }) {
   const token = getToken();
   if (!validPickupPointId(pickupPointId)) throw new Error("Некорректный пункт выдачи.");
   validatePackage(parcel);
+
+  /*
+   * Ценообразование Яндекса учитывает каждое место. Без этого плакат в тубусе
+   * считался бы по габаритам стопки документов.
+   */
+  const pricingPlaces = places && places.length > 0 ? places : [parcel];
+  pricingPlaces.forEach(validatePackage);
   const response = await fetch(YANDEX_DELIVERY_PRICING_API, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "Accept-Language": "ru-RU" },
@@ -51,14 +71,14 @@ export async function calculateYandexPickupDelivery({ pickupPointId, printPriceR
       source: { platform_station_id: YANDEX_DELIVERY_SOURCE_PLATFORM_STATION_ID },
       destination: { platform_station_id: pickupPointId },
       tariff: "self_pickup",
-      total_weight: parcel.weightGrams,
       total_assessed_price: printPriceRubles * 100,
       client_price: 0,
       payment_method: "already_paid",
-      places: [{ physical_dims: {
-        weight_gross: parcel.weightGrams, dx: toCentimeters(parcel.widthMm),
-        dy: toCentimeters(parcel.lengthMm), dz: toCentimeters(parcel.heightMm),
-      } }],
+      places: pricingPlaces.map((place) => ({ physical_dims: {
+        weight_gross: place.weightGrams, dx: toCentimeters(place.widthMm),
+        dy: toCentimeters(place.lengthMm), dz: toCentimeters(place.heightMm),
+      } })),
+      total_weight: pricingPlaces.reduce((total, place) => total + place.weightGrams, 0),
     }), cache: "no-store",
   });
   const body: unknown = await response.json().catch(() => null);
@@ -72,8 +92,10 @@ export async function calculateYandexPickupDelivery({ pickupPointId, printPriceR
 }
 
 // This call is intentionally made only after T-Bank confirms payment.
-export async function createYandexPickupDelivery({ orderNumber, pickupPointId, printPriceRubles, recipient, package: parcel }: {
+export async function createYandexPickupDelivery({ orderNumber, pickupPointId, printPriceRubles, recipient, package: parcel, places }: {
   orderNumber: string; pickupPointId: string; printPriceRubles: number; recipient: Recipient; package: Package;
+  /* Все грузоместа заказа. Если не переданы — используется одна посылка. */
+  places?: DeliveryPlace[];
 }) {
   const token = getToken();
   // merchant_id нужен только при отдельных зарегистрированных мерчантах.
@@ -83,6 +105,14 @@ export async function createYandexPickupDelivery({ orderNumber, pickupPointId, p
   if (!validPickupPointId(pickupPointId)) throw new Error("Некорректный пункт выдачи.");
   if (!Number.isSafeInteger(printPriceRubles) || printPriceRubles < 0) throw new Error("Некорректная стоимость печати для заявки Яндекс Доставки.");
   validatePackage(parcel);
+
+  /*
+   * Яндекс принимает несколько мест в одном заказе: каждое место — отдельный
+   * тубус или коробка. Без этого плакаты уехали бы как одна плоская посылка.
+   */
+  const deliveryPlaces = places && places.length > 0 ? places : [parcel];
+  deliveryPlaces.forEach(validatePackage);
+
   const response = await fetch(YANDEX_DELIVERY_CREATE_API, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "Accept-Language": "ru-RU" },
@@ -111,13 +141,15 @@ export async function createYandexPickupDelivery({ orderNumber, pickupPointId, p
           assessed_unit_price: printPriceRubles * 100,
         },
       }],
-      places: [{
-        barcode: `print-${orderNumber}`.slice(0, 100),
+      places: deliveryPlaces.map((place, index) => ({
+        barcode: `print-${orderNumber}-${index + 1}`.slice(0, 100),
         physical_dims: {
-          weight_gross: parcel.weightGrams, dx: toCentimeters(parcel.widthMm),
-          dy: toCentimeters(parcel.lengthMm), dz: toCentimeters(parcel.heightMm),
+          weight_gross: place.weightGrams,
+          dx: toCentimeters(place.widthMm),
+          dy: toCentimeters(place.lengthMm),
+          dz: toCentimeters(place.heightMm),
         },
-      }],
+      })),
       recipient_info: recipientInfo(recipient),
     }), cache: "no-store",
   });

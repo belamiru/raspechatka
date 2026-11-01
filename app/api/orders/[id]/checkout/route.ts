@@ -81,9 +81,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
     if (order.status === "cancelled") return NextResponse.json({ error: "Заказ отменён." }, { status: 409 });
     const db = getDb();
-    const pricing = await db.query<{ print_price: number; package_weight_grams: number; package_width_mm: number; package_length_mm: number; package_height_mm: number }>(`
+    const pricing = await db.query<{
+      print_price: number; package_weight_grams: number; package_width_mm: number;
+      package_length_mm: number; package_height_mm: number;
+      package_places: { weightGrams: number; widthMm: number; lengthMm: number; heightMm: number }[] | null;
+    }>(`
       SELECT COALESCE(print_price, total_price) AS print_price,
-             package_weight_grams, package_width_mm, package_length_mm, package_height_mm
+             package_weight_grams, package_width_mm, package_length_mm, package_height_mm,
+             package_places
       FROM orders WHERE id = $1 AND guest_token_hash = $2 AND status = 'awaiting_checkout'
     `, [id, hashGuestToken(token)]);
     const orderForPricing = pricing.rows[0];
@@ -110,6 +115,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           weightGrams: Number(orderForPricing.package_weight_grams), widthMm: Number(orderForPricing.package_width_mm),
           lengthMm: Number(orderForPricing.package_length_mm), heightMm: Number(orderForPricing.package_height_mm),
         },
+        /* Каждое грузоместо считается отдельно: плакат едет тубусом. */
+        ...(Array.isArray(orderForPricing.package_places) && orderForPricing.package_places.length > 0
+          ? { places: orderForPricing.package_places }
+          : {}),
       });
       ozonDeliveryPrice = quote.deliveryPriceRubles;
       ozonInsurancePrice = quote.insurancePriceRubles;

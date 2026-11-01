@@ -1,10 +1,11 @@
 import { getDb } from "@/lib/db";
-import { createYandexPickupDelivery } from "@/lib/yandex-delivery";
+import { createYandexPickupDelivery, type DeliveryPlace } from "@/lib/yandex-delivery";
 
 type ClaimedOrder = {
   id: string; order_number: string; pickup_point_id: string; customer_name: string;
   customer_phone: string; customer_email: string | null; print_price: number; package_weight_grams: number;
   package_width_mm: number; package_length_mm: number; package_height_mm: number;
+  package_places: DeliveryPlace[] | null;
 };
 
 // Claims the row before calling Yandex, so concurrent webhook/status checks cannot create two requests.
@@ -15,7 +16,7 @@ export async function createYandexDeliveryForPaidOrder(orderId: string) {
     WHERE id = $1 AND status IN ('paid', 'in_progress', 'ready') AND fulfillment_method = 'yandex_pickup_point'
       AND yandex_delivery_request_id IS NULL AND COALESCE(yandex_delivery_status, '') <> 'creating'
     RETURNING id, order_number, pickup_point_id, customer_name, customer_phone, customer_email, print_price,
-      package_weight_grams, package_width_mm, package_length_mm, package_height_mm
+      package_weight_grams, package_width_mm, package_length_mm, package_height_mm, package_places
   `, [orderId]);
   const order = claimed.rows[0];
   if (!order) return false;
@@ -30,6 +31,13 @@ export async function createYandexDeliveryForPaidOrder(orderId: string) {
         weightGrams: Number(order.package_weight_grams), widthMm: Number(order.package_width_mm),
         lengthMm: Number(order.package_length_mm), heightMm: Number(order.package_height_mm),
       },
+      /*
+       * Передаём все грузоместа: плакаты едут тубусом отдельно от документов.
+       * Старые заказы без этого поля отправятся одной посылкой.
+       */
+      ...(Array.isArray(order.package_places) && order.package_places.length > 0
+        ? { places: order.package_places }
+        : {}),
     });
     await db.query(`
       UPDATE orders SET yandex_delivery_request_id = $1, yandex_delivery_status = 'created',

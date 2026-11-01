@@ -30,6 +30,12 @@ type PrintSettingsPanelProps = {
    * и чёрно-белую печать, которых у фотобумаги не бывает.
    */
   photoMode?: boolean;
+
+  /*
+   * Плакат: у широкоформатной печати нет документных параметров — формата
+   * A4/A3, цвета и сторон. Остаётся только количество.
+   */
+  quantityOnly?: boolean;
 };
 
 function getFileKindLabel(item: OrderFileListItem) {
@@ -172,6 +178,7 @@ export function PrintSettingsPanel({
   onPrintSettingsChange,
   variant = "card",
   photoMode = false,
+  quantityOnly = false,
 }: PrintSettingsPanelProps) {
   const isInline = variant === "inline";
   const shellClass = isInline
@@ -239,7 +246,7 @@ export function PrintSettingsPanel({
       )}
 
       <fieldset disabled={!isReady} className={`${isInline ? "" : "mt-4"} grid min-w-0 gap-4 border-0 p-0 ${isInline ? "sm:grid-cols-2" : ""}`}>
-        {!photoMode && (
+        {!photoMode && !quantityOnly && (
         <>
         <Segmented
           label="Формат"
@@ -273,7 +280,7 @@ export function PrintSettingsPanel({
         </>
         )}
 
-        <div className={`flex items-center justify-between gap-3 ${photoMode ? "sm:col-span-2" : ""}`}>
+        <div className={`flex items-center justify-between gap-3 ${photoMode || quantityOnly ? "sm:col-span-2" : ""}`}>
           <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
             {photoMode ? "Количество отпечатков" : "Количество"}
           </p>
@@ -286,7 +293,7 @@ export function PrintSettingsPanel({
         </div>
       </fieldset>
 
-      {!photoMode && (
+      {!photoMode && !quantityOnly && (
         <p className="mt-3 text-xs leading-5 text-slate-500">
           {isImage
             ? "Изображения печатаются только односторонне."

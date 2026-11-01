@@ -823,6 +823,7 @@ export default function Home() {
                     <PrintSettingsPanel
                       variant="inline"
                       photoMode={printKind === "photo"}
+                      quantityOnly={printKind === "poster"}
                       selectedFile={item}
                       selectedFilePrice={filePrices[item.id] ?? null}
                       onPrintSettingsChange={changeFilePrintSettings}

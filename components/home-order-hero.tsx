@@ -100,7 +100,8 @@ export function HomeOrderHero() {
   const [paperFormat, setPaperFormat] = useState<PaperFormat>("A4");
   const [colorMode, setColorMode] = useState<PrintColorMode>("black-and-white");
   const [printSides, setPrintSides] = useState<PrintSides>("one-sided");
-  const [copies, setCopies] = useState(2);
+  /* По умолчанию одна копия: заказчик чаще печатает один экземпляр. */
+  const [copies, setCopies] = useState(1);
   const [paper, setPaper] = useState<string>("80");
   /* Как вписать снимок в фотобумагу: заполнить кадр или оставить белые поля. */
   const [photoFit, setPhotoFit] = useState<"crop" | "contain">("crop");

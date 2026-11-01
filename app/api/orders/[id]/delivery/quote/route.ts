@@ -22,8 +22,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const pickupPointId = typeof point?.pickupPointId === "string" ? point.pickupPointId.trim() : "";
     if (!token || !pickupPointId) return NextResponse.json({ error: "Выберите пункт выдачи." }, { status: 400 });
     await ensureOrderCheckoutSchema();
-    const order = await getDb().query<{ print_price: number; package_weight_grams: number; package_width_mm: number; package_length_mm: number; package_height_mm: number }>(`
-      SELECT print_price, package_weight_grams, package_width_mm, package_length_mm, package_height_mm
+    const order = await getDb().query<{
+      print_price: number; package_weight_grams: number; package_width_mm: number;
+      package_length_mm: number; package_height_mm: number;
+      package_places: { weightGrams: number; widthMm: number; lengthMm: number; heightMm: number }[] | null;
+    }>(`
+      SELECT print_price, package_weight_grams, package_width_mm, package_length_mm, package_height_mm,
+             package_places
       FROM orders WHERE id = $1 AND guest_token_hash = $2 AND status = 'awaiting_checkout'
     `, [id, hashGuestToken(token)]);
     const saved = order.rows[0];
@@ -31,6 +36,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const quote = await calculateYandexPickupDelivery({
       pickupPointId, printPriceRubles: Number(saved.print_price),
       package: { weightGrams: Number(saved.package_weight_grams), widthMm: Number(saved.package_width_mm), lengthMm: Number(saved.package_length_mm), heightMm: Number(saved.package_height_mm) },
+      /* Все грузоместа: заказ может уехать стопкой и тубусом. */
+      ...(Array.isArray(saved.package_places) && saved.package_places.length > 0
+        ? { places: saved.package_places }
+        : {}),
     });
     /* Порог бесплатной доставки применяем и здесь: эту цену видит покупатель. */
     return NextResponse.json(

@@ -18,6 +18,12 @@ type OzonDeliveryPointWithLimits = OzonDeliveryPoint & {
   restrictions?: Record<string, unknown> | null;
 };
 
+/*
+ * Одно грузоместо заказа. Ozon принимает несколько грузомест в одном
+ * отправлении: массив postings в /v1/order/checkout и /v1/order/create.
+ * Поэтому плакаты в тубусе и плоская стопка документов едут каждое своим
+ * грузоместом с собственными габаритами и весом.
+ */
 export type OzonParcel = {
   weightGrams: number;
   widthMm: number;
@@ -133,6 +139,26 @@ function declaredValue(printPriceRubles: number) {
  */
 export function freshRequestId() {
   return Math.floor(Math.random() * 2_000_000_000) + 1;
+}
+
+/**
+ * Объявленная стоимость по каждому грузоместу.
+ *
+ * Ozon считает страховку от объявленной стоимости, поэтому при нескольких
+ * местах делим сумму печати пропорционально весу: тяжёлое место везёт
+ * больше ценности. Минимум Ozon (200 ₽) действует на каждое место отдельно,
+ * поэтому при дешёвом заказе сумма может выйти чуть больше фактической —
+ * это требование Ozon, а не наше округление.
+ */
+function distributeDeclaredValue(printPriceRubles: number, places: OzonParcel[]) {
+  if (places.length <= 1) return [printPriceRubles];
+
+  const totalWeight = places.reduce((total, place) => total + Math.max(1, place.weightGrams), 0);
+
+  return places.map((place) => {
+    const share = Math.round((printPriceRubles * Math.max(1, place.weightGrams)) / totalWeight);
+    return Math.max(OZON_MIN_DECLARED_VALUE_RUBLES, share);
+  });
 }
 
 type OzonResultError = { code: string; message: string };
@@ -529,15 +555,20 @@ async function checkOzonPointAvailability(input: {
   requestId: number;
   printPriceRubles: number;
   parcel: OzonParcel;
+  /* Все грузоместа: проверяем каждое отдельно, иначе лимиты пункта соврут. */
+  places?: OzonParcel[];
 }) {
+  const places = input.places?.length ? input.places : [input.parcel];
+  const declaredValues = distributeDeclaredValue(input.printPriceRubles, places);
+
   const response = await postOzonDeliveryApi("/v1/delivery-point/check-availability", {
     delivery_point_ids: [Number(input.pointId)],
     shipment_method_id: input.shipmentMethodId,
-    postings: [{
-      request_id: input.requestId,
-      declared_value: declaredValue(input.printPriceRubles),
-      dimensions: dimensions(input.parcel),
-    }],
+    postings: places.map((place, index) => ({
+      request_id: input.requestId + index,
+      declared_value: declaredValue(declaredValues[index]),
+      dimensions: dimensions(place),
+    })),
   });
   // Only an explicit negative answer blocks the customer: /v1/order/checkout stays
   // the authoritative gate, so an unknown payload shape must not break checkout.
@@ -562,25 +593,35 @@ async function requestOzonCheckout(input: {
   phone: string;
   printPriceRubles: number;
   parcel: OzonParcel;
+  /* Все грузоместа заказа: каждое уходит отдельным posting. */
+  places?: OzonParcel[];
   /** Плановая отгрузка по нашему графику: от неё Ozon считает срок доставки. */
   cutoffAt: string;
 }): Promise<OzonDeliveryQuote> {
+  const places = input.places?.length ? input.places : [input.parcel];
+  const declaredValues = distributeDeclaredValue(input.printPriceRubles, places);
+
   const response = await postOzonDeliveryApi("/v1/order/checkout", {
     recipient: { phone_number: toOzonPhoneNumber(input.phone) },
-    postings: [{
-      request_id: input.requestId,
+    postings: places.map((place, index) => ({
+      request_id: input.requestId + index,
       shipment_method_id: input.shipmentMethodId,
       cutoff_at: input.cutoffAt,
-      declared_value: declaredValue(input.printPriceRubles),
-      dimensions: dimensions(input.parcel),
-    }],
+      declared_value: declaredValue(declaredValues[index]),
+      dimensions: dimensions(place),
+    })),
     delivery: { delivery_point: { delivery_point_id: Number(input.pointId) } },
   });
   const all = records(response);
   if (all.some((record) => record.can_be_delivered === false || record.is_available === false)) {
     throw new Error("Ozon не может доставить этот заказ в выбранный пункт выдачи. Выберите другой пункт.");
   }
-  const priced = all.find((record) => "estimated_delivery_cost" in record || "estimated_delivery_days" in record);
+  /*
+   * Ozon возвращает расчёт по каждому posting. Суммируем доставку и страховку:
+   * покупатель платит за все места, а не только за первое.
+   */
+  const pricedAll = all.filter((record) => "estimated_delivery_cost" in record || "estimated_delivery_days" in record);
+  const priced = pricedAll[0];
   if (!priced) {
     const problem = ozonResultError(response);
     if (!problem) throw new Error("Ozon не вернул расчёт стоимости доставки. Попробуйте позже.");
@@ -598,15 +639,29 @@ async function requestOzonCheckout(input: {
     }
     throw new Error(describeOzonError(problem, hint));
   }
-  const deliveryKopecks = kopecks(priced.estimated_delivery_cost);
-  const insuranceKopecks = kopecks(priced.estimated_insurance_cost);
+  const deliveryKopecks = pricedAll.reduce(
+    (total, record) => total + kopecks(record.estimated_delivery_cost),
+    0
+  );
+  const insuranceKopecks = pricedAll.reduce(
+    (total, record) => total + kopecks(record.estimated_insurance_cost),
+    0
+  );
   const deliveryPriceRubles = rublesUp(deliveryKopecks);
   const insurancePriceRubles = rublesUp(insuranceKopecks);
+
+  /* Срок доставки — по самому долгому месту. */
+  const deliveryDays = pricedAll.reduce<number | null>((slowest, record) => {
+    const days = integer(record.estimated_delivery_days);
+    if (days === null) return slowest;
+    return slowest === null ? days : Math.max(slowest, days);
+  }, null);
+
   return {
     deliveryPriceRubles,
     insurancePriceRubles,
     priceRubles: deliveryPriceRubles + insurancePriceRubles,
-    deliveryDays: integer(priced.estimated_delivery_days),
+    deliveryDays,
     // Ozon может уточнить время; если не вернул — остаётся наше.
     cutoffAt: text(priced, ["cutoff_at"]) || input.cutoffAt,
   };
@@ -618,6 +673,8 @@ export async function quoteOzonPickupDelivery(input: {
   phone: string;
   printPriceRubles: number;
   parcel: OzonParcel;
+  /* Все грузоместа: заказ может уехать стопкой и тубусом. */
+  places?: OzonParcel[];
 }) {
   if (!/^\d+$/.test(input.pointId)) throw new Error("Выберите пункт выдачи Ozon.");
   if (!(await checkOzonClient(input.phone))) {
@@ -630,6 +687,7 @@ export async function quoteOzonPickupDelivery(input: {
   const available = await checkOzonPointAvailability({
     pointId: input.pointId, shipmentMethodId, requestId,
     printPriceRubles: input.printPriceRubles, parcel: input.parcel,
+    ...(input.places ? { places: input.places } : {}),
   });
   if (!available) {
     throw new Error("Выбранный пункт Ozon не принимает этот заказ по габаритам или стоимости. Выберите другой пункт.");
@@ -637,6 +695,7 @@ export async function quoteOzonPickupDelivery(input: {
   return requestOzonCheckout({
     pointId: input.pointId, shipmentMethodId, requestId, phone: input.phone,
     printPriceRubles: input.printPriceRubles, parcel: input.parcel,
+    ...(input.places ? { places: input.places } : {}),
     cutoffAt: toOzonCutoff(nextOzonShipmentSlot()),
   });
 }
@@ -653,6 +712,8 @@ type ClaimedOzonOrder = {
   package_width_mm: number;
   package_length_mm: number;
   package_height_mm: number;
+  /* Грузоместа заказа: плакаты едут тубусом отдельно от плоской стопки. */
+  package_places: OzonParcel[] | null;
   ozon_delivery_idempotency_key: string;
 };
 
@@ -742,7 +803,13 @@ export async function getOzonLabelForOrder(orderId: string): Promise<OzonLabelFi
   if (!order.ozon_posting_number) {
     throw new Error("У заказа ещё нет номера отправления Ozon: заказ в Ozon не создан.");
   }
-  const postingNumber = order.ozon_posting_number;
+  /* В базе номера хранятся строкой через запятую: мест может быть несколько. */
+  const storedPostings: string = order.ozon_posting_number;
+  const postingNumbers = storedPostings
+    .split(",")
+    .map((value: string) => value.trim())
+    .filter((value: string) => value.length > 0);
+  const postingNumber = postingNumbers[0];
 
   // Формат запроса этикетки в документации не подтверждён: approve, например,
   // принимает только posting_number. Если Ozon назовёт в ошибке другое поле,
@@ -750,11 +817,18 @@ export async function getOzonLabelForOrder(orderId: string): Promise<OzonLabelFi
   const headers = { Accept: "application/pdf, image/png, application/json" };
   let response;
   try {
-    response = await postOzonDeliveryApiRaw("/v1/posting/label", { posting_number: postingNumber }, headers);
+    /* При нескольких местах запрашиваем этикетки всех отправлений одним файлом. */
+    response = await postOzonDeliveryApiRaw(
+      "/v1/posting/label",
+      postingNumbers.length > 1
+        ? { posting_numbers: postingNumbers }
+        : { posting_number: postingNumber },
+      headers
+    );
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : "";
     if (!/HTTP 400/.test(message) || !message.includes("posting_numbers")) throw cause;
-    response = await postOzonDeliveryApiRaw("/v1/posting/label", { posting_numbers: [postingNumber] }, headers);
+    response = await postOzonDeliveryApiRaw("/v1/posting/label", { posting_numbers: postingNumbers }, headers);
   }
 
   let file: { bytes: Uint8Array; format: NonNullable<ReturnType<typeof detectLabelFormat>> } | null = null;
@@ -816,16 +890,31 @@ export async function approveOzonDeliveryForPaidOrder(orderId: string) {
   if (!order) return false;
 
   try {
-    const postingNumber = order.ozon_posting_number as string;
+    /*
+     * Подтверждаем каждое отправление: в заказе с плакатами их несколько,
+     * и без подтверждения они останутся черновиками.
+     */
+    const postingNumbers = (order.ozon_posting_number as string)
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const postingNumber = postingNumbers[0];
 
     // Срок здесь не проверяем: cutoff_at — наш план сдачи посылки, а не
     // крайний срок Ozon. Решение о подтверждении принимает Ozon, и его отказ
     // попадёт в ozon_delivery_error с понятным текстом.
     // Ozon ждёт одну строку posting_number, а не массив: на posting_numbers
     // он отвечает 400 «missing required properties including: 'posting_number'».
-    const response = await postOzonDeliveryApi("/v1/posting/approve", {
-      posting_number: postingNumber,
-    });
+    /* Ozon принимает одну строку posting_number за вызов — подтверждаем по очереди. */
+    let response: Record<string, unknown> = {};
+    for (const currentPosting of postingNumbers) {
+      response = await postOzonDeliveryApi("/v1/posting/approve", {
+        posting_number: currentPosting,
+      });
+
+      const failed = records(response).find((record) => record.error && typeof record.error === "object");
+      if (failed) break;
+    }
 
     // Ozon отвечает 200 и при ошибке по конкретному отправлению — читаем results.
     const failure = records(response).find(
@@ -880,7 +969,8 @@ export async function createOzonDeliveryForPaidOrder(orderId: string) {
     WHERE id = $1 AND status = 'paid' AND fulfillment_method = 'ozon_pickup_point'
       AND ozon_order_number IS NULL AND COALESCE(ozon_delivery_status, '') <> 'creating'
     RETURNING id, order_number, customer_name, customer_phone, pickup_point_id, print_price, delivery_price,
-      package_weight_grams, package_width_mm, package_length_mm, package_height_mm, ozon_delivery_idempotency_key
+      package_weight_grams, package_width_mm, package_length_mm, package_height_mm, package_places,
+      ozon_delivery_idempotency_key
   `, [orderId, randomUUID()]);
   const order = claimed.rows[0];
   if (!order) return false;
@@ -890,6 +980,14 @@ export async function createOzonDeliveryForPaidOrder(orderId: string) {
       weightGrams: Number(order.package_weight_grams), widthMm: Number(order.package_width_mm),
       lengthMm: Number(order.package_length_mm), heightMm: Number(order.package_height_mm),
     };
+    /*
+     * Места берём из заказа. Старые заказы без package_places отправятся
+     * одной посылкой по общим габаритам.
+     */
+    const places: OzonParcel[] =
+      Array.isArray(order.package_places) && order.package_places.length > 0
+        ? order.package_places
+        : [parcel];
     const printPriceRubles = Number(order.print_price);
     const shipmentMethodId = await activeShipmentMethodId();
     // Ozon requires /v1/order/checkout with the same parameters right before creating the order.
@@ -903,13 +1001,15 @@ export async function createOzonDeliveryForPaidOrder(orderId: string) {
     const cutoffAt = toOzonCutoff(nextOzonShipmentSlot());
     const quote = await requestOzonCheckout({
       pointId: order.pickup_point_id, shipmentMethodId, requestId,
-      phone: order.customer_phone, printPriceRubles, parcel, cutoffAt,
+      phone: order.customer_phone, printPriceRubles, parcel, places, cutoffAt,
     });
     const paidDeliveryPrice = Number(order.delivery_price ?? 0);
     if (quote.priceRubles !== paidDeliveryPrice) {
       // Never ship on economics the customer did not pay for: leave it for an operator.
       throw new Error(`Ozon изменил стоимость доставки после оплаты: оплачено ${paidDeliveryPrice} ₽, сейчас ${quote.priceRubles} ₽. Заказ в Ozon не создан.`);
     }
+    const declaredValues = distributeDeclaredValue(printPriceRubles, places);
+
     const response = await postOzonDeliveryApi("/v1/order/create", {
       order_external_id: order.order_number,
       recipient: {
@@ -917,19 +1017,31 @@ export async function createOzonDeliveryForPaidOrder(orderId: string) {
         phone_number: toOzonPhoneNumber(order.customer_phone),
       },
       delivery: { delivery_point: { delivery_point_id: Number(order.pickup_point_id) } },
-      postings: [{
-        request_id: requestId,
-        posting_external_id: order.order_number,
+      /*
+       * Каждое грузоместо — отдельный posting со своим номером. Плакаты
+       * в тубусе не должны попасть в одну коробку с документами.
+       */
+      postings: places.map((place, index) => ({
+        request_id: requestId + index,
+        posting_external_id:
+          places.length > 1 ? `${order.order_number}-${index + 1}` : order.order_number,
         shipment_method_id: shipmentMethodId,
         description: `Печатная продукция, заказ ${order.order_number}`,
-        declared_value: declaredValue(printPriceRubles),
-        dimensions: dimensions(parcel),
+        declared_value: declaredValue(declaredValues[index]),
+        dimensions: dimensions(place),
         cutoff_at: cutoffAt,
-      }],
+      })),
     }, { "Idempotency-Key": order.ozon_delivery_idempotency_key });
     const ozonOrderNumber = records(response).map((record) => text(record, ["order_number"])).find(Boolean) ?? "";
     if (!ozonOrderNumber) throw new Error("Ozon не вернул номер созданного заказа.");
-    const postingNumber = records(response).map((record) => text(record, ["posting_number"])).find(Boolean) ?? null;
+    /*
+     * Номера отправлений для подтверждения и печати этикеток. При нескольких
+     * местах их несколько — храним списком через запятую.
+     */
+    const postingNumbers = records(response)
+      .map((record) => text(record, ["posting_number"]))
+      .filter((value) => value.length > 0);
+    const postingNumber = postingNumbers.length > 0 ? postingNumbers.join(",") : null;
     await db.query(`
       UPDATE orders SET ozon_order_number = $1, ozon_posting_number = $2, ozon_delivery_status = 'created',
         ozon_delivery_error = NULL, ozon_delivery_created_at = NOW(), ozon_cutoff_at = $4, updated_at = NOW()
