@@ -33,6 +33,7 @@ import {
   DEFAULT_PRINT_EXTRA_OPTIONS,
 } from "@/components/file-print-options";
 import { getExtrasPrice } from "@/lib/print-extras";
+import { FreeDeliveryProgress } from "@/components/free-delivery-progress";
 import { takePendingOrderFiles } from "@/lib/pending-order-files";
 
 
@@ -627,7 +628,7 @@ export default function Home() {
 
           <ol className="grid w-full max-w-md grid-cols-3 gap-2 text-xs font-semibold text-slate-500 sm:text-sm" aria-label="Этапы заказа">
             <li aria-current="step"><span className="block h-1.5 rounded-full bg-blue-600" /><span className="mt-2 block text-slate-900">1. Файлы</span></li>
-            <li><span className="block h-1.5 rounded-full bg-slate-200" /><span className="mt-2 block">2. Получение</span></li>
+            <li><span className="block h-1.5 rounded-full bg-slate-200" /><span className="mt-2 block">2. Оформление</span></li>
             <li><span className="block h-1.5 rounded-full bg-slate-200" /><span className="mt-2 block">3. Оплата</span></li>
           </ol>
         </div>
@@ -770,6 +771,8 @@ export default function Home() {
           </section>
 
             <div className="min-w-0 space-y-6 lg:self-start">
+            <FreeDeliveryProgress printPrice={price} className="mb-0" />
+
             <aside
               id="order"
               className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
@@ -861,7 +864,7 @@ export default function Home() {
                 ? "Создаём заказ..."
                 : isAnalyzingFiles
                   ? "Проверяем файлы..."
-                  : "Перейти к получению"}
+                  : "Оформить заказ"}
             </button>
 
             <p className="mt-3 text-center text-xs leading-5 text-slate-500">

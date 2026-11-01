@@ -87,6 +87,8 @@ export function HomeOrderHero() {
   const [printSides, setPrintSides] = useState<PrintSides>("one-sided");
   const [copies, setCopies] = useState(2);
   const [paper, setPaper] = useState<string>("80");
+  /* Как вписать снимок в фотобумагу: заполнить кадр или оставить белые поля. */
+  const [photoFit, setPhotoFit] = useState<"crop" | "contain">("crop");
   const [isDragging, setIsDragging] = useState(false);
 
   /* Согласия: те же три галочки, что были в прежней форме заказа. */
@@ -102,6 +104,12 @@ export function HomeOrderHero() {
   const isAnalyzing = uploaded?.status === "analyzing";
   const pageCount = uploaded?.pages ?? 0;
   const isImage = uploaded?.kind === "image";
+
+  /*
+   * Режим определяет вкладка, а не тип файла: на вкладке «Фото» нужны опции
+   * фотопечати 10×15, на «Документах» — формат A4/A3 и стороны.
+   */
+  const isPhotoMode = category === "photo";
 
   /*
    * Для изображений формат фиксирован на A4, поэтому и цена, и то, что уходит
@@ -456,74 +464,148 @@ export function HomeOrderHero() {
                 </div>
               )}
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Формат</p>
-                  <div className="mt-1.5 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
-                    {(["A4", "A3"] as const).map((value) => {
-                      const isSelected = paperFormat === value;
-                      return <button key={value} type="button" disabled={isImage} title={value === "A3" ? "Лист A3 в два раза больше A4; цена печати рассчитывается как за две страницы A4." : undefined} aria-pressed={isSelected} onClick={() => setPaperFormat(value)} className={`rounded-lg px-2 py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${isSelected ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200" : "text-slate-600 hover:text-slate-900"}`}>{value}</button>;
-                    })}
+              {isPhotoMode ? (
+                <>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Кадр</p>
+                    <div className="mt-1.5 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
+                      {([
+                        ["crop", "Заполнить кадр"],
+                        ["contain", "Вписать целиком"],
+                      ] as const).map(([value, label]) => {
+                        const isSelected = photoFit === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-pressed={isSelected}
+                            onClick={() => setPhotoFit(value)}
+                            className={`rounded-lg px-2 py-2 text-sm font-bold transition ${
+                              isSelected ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200" : "text-slate-600 hover:text-slate-900"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <p className={`mt-2 rounded-lg px-3 py-2 text-xs leading-5 ${
+                      photoFit === "crop" ? "bg-amber-50 text-amber-900" : "bg-blue-50 text-blue-900"
+                    }`}>
+                      {photoFit === "crop" ? (
+                        <>
+                          <strong>Заполнить кадр.</strong> Края снимка обрезаются под пропорцию 10×15: белых полей
+                          нет, изображение занимает весь лист. Всё, что было у краёв, может обрезаться.
+                        </>
+                      ) : (
+                        <>
+                          <strong>Вписать целиком.</strong> Снимок уменьшается, чтобы поместиться полностью, а
+                          свободные места остаются белыми. Ничего не обрезается, но по краям будут поля.
+                        </>
+                      )}
+                    </p>
                   </div>
-                </div>
 
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Количество</p>
-                  <div className="mt-1.5 flex items-center overflow-hidden rounded-xl border border-slate-300 bg-white">
-                    <button type="button" onClick={() => setCopies((current) => Math.max(1, current - 1))} disabled={copies <= 1} className="flex h-10 w-10 items-center justify-center border-r border-slate-300 text-lg font-bold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300" aria-label="Уменьшить количество копий">−</button>
-                    <input type="text" inputMode="numeric" pattern="[0-9]*" value={copies} onChange={(event) => { const digits = event.target.value.replace(/\D/g, ""); if (digits === "") return; const next = Number(digits); if (next >= 1 && next <= 1000) setCopies(next); }} className="h-10 min-w-0 flex-1 bg-white text-center text-base font-bold text-slate-900 outline-none focus:bg-blue-50" aria-label="Количество копий" />
-                    <button type="button" onClick={() => setCopies((current) => Math.min(1000, current + 1))} className="flex h-10 w-10 items-center justify-center border-l border-slate-300 text-lg font-bold text-slate-700 transition hover:bg-slate-100" aria-label="Увеличить количество копий">+</button>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Количество отпечатков</p>
+                    <div className="mt-1.5 flex items-center overflow-hidden rounded-xl border border-slate-300 bg-white">
+                      <button type="button" onClick={() => setCopies((current) => Math.max(1, current - 1))} disabled={copies <= 1} className="flex h-10 w-10 items-center justify-center border-r border-slate-300 text-lg font-bold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300" aria-label="Уменьшить количество отпечатков">−</button>
+                      <input type="text" inputMode="numeric" pattern="[0-9]*" value={copies} onChange={(event) => { const digits = event.target.value.replace(/\D/g, ""); if (digits === "") return; const next = Number(digits); if (next >= 1 && next <= 1000) setCopies(next); }} className="h-10 min-w-0 flex-1 bg-white text-center text-base font-bold text-slate-900 outline-none focus:bg-blue-50" aria-label="Количество отпечатков" />
+                      <button type="button" onClick={() => setCopies((current) => Math.min(1000, current + 1))} className="flex h-10 w-10 items-center justify-center border-l border-slate-300 text-lg font-bold text-slate-700 transition hover:bg-slate-100" aria-label="Увеличить количество отпечатков">+</button>
+                    </div>
+                    <p className="mt-1.5 text-xs leading-5 text-slate-500">
+                      Фотобумага 10×15 (A6). Чем больше отпечатков, тем ниже цена за штуку.
+                    </p>
                   </div>
-                </div>
-              </div>
+                </>
+              ) : (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Формат</p>
+                      <div className="mt-1.5 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
+                        {(["A4", "A3"] as const).map((value) => {
+                          const isSelected = paperFormat === value;
+                          return (
+                            <button
+                              key={value}
+                              type="button"
+                              title={value === "A3" ? "Лист A3 в два раза больше A4; цена печати рассчитывается как за две страницы A4." : undefined}
+                              aria-pressed={isSelected}
+                              onClick={() => setPaperFormat(value)}
+                              className={`rounded-lg px-2 py-2 text-sm font-bold transition ${
+                                isSelected ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200" : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              {value}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
 
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Стороны</p>
-                <div className="mt-1.5 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
-                  {([ ["one-sided", "Односторонняя"], ["two-sided", "Двусторонняя"] ] as const).map(([value, label]) => {
-                    const isSelected = printSides === value;
-                    return <button key={value} type="button" disabled={isImage && value === "two-sided"} aria-pressed={isSelected} onClick={() => setPrintSides(value)} className={`rounded-lg px-2 py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-40 ${isSelected ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200" : "text-slate-600 hover:text-slate-900"}`}>{label}</button>;
-                  })}
-                </div>
-              </div>
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Количество копий</p>
+                      <div className="mt-1.5 flex items-center overflow-hidden rounded-xl border border-slate-300 bg-white">
+                        <button type="button" onClick={() => setCopies((current) => Math.max(1, current - 1))} disabled={copies <= 1} className="flex h-10 w-10 items-center justify-center border-r border-slate-300 text-lg font-bold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300" aria-label="Уменьшить количество копий">−</button>
+                        <input type="text" inputMode="numeric" pattern="[0-9]*" value={copies} onChange={(event) => { const digits = event.target.value.replace(/\D/g, ""); if (digits === "") return; const next = Number(digits); if (next >= 1 && next <= 1000) setCopies(next); }} className="h-10 min-w-0 flex-1 bg-white text-center text-base font-bold text-slate-900 outline-none focus:bg-blue-50" aria-label="Количество копий" />
+                        <button type="button" onClick={() => setCopies((current) => Math.min(1000, current + 1))} className="flex h-10 w-10 items-center justify-center border-l border-slate-300 text-lg font-bold text-slate-700 transition hover:bg-slate-100" aria-label="Увеличить количество копий">+</button>
+                      </div>
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <label className="sr-only" htmlFor="hero-paper">Бумага</label>
-                <select
-                  id="hero-paper"
-                  value={paper}
-                  onChange={(event) => setPaper(event.target.value)}
-                  className={controlClass}
-                >
-                  {PAPER_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Стороны</p>
+                    <div className="mt-1.5 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
+                      {([ ["one-sided", "Односторонняя"], ["two-sided", "Двусторонняя"] ] as const).map(([value, label]) => {
+                        const isSelected = printSides === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-pressed={isSelected}
+                            onClick={() => setPrintSides(value)}
+                            className={`rounded-lg px-2 py-2 text-sm font-bold transition ${
+                              isSelected ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200" : "text-slate-600 hover:text-slate-900"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
 
-                <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
-                  {([
-                    ["black-and-white", "Ч/б"],
-                    ["color", "Цветная"],
-                  ] as const).map(([value, label]) => {
-                    const isSelected = colorMode === value;
-                    return (
-                      <button
-                        key={value}
-                        type="button"
-                        aria-pressed={isSelected}
-                        onClick={() => setColorMode(value)}
-                        className={`rounded-lg px-2 py-2 text-sm font-bold transition ${
-                          isSelected ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200" : "text-slate-600 hover:text-slate-900"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="sr-only" htmlFor="hero-paper">Бумага</label>
+                    <select id="hero-paper" value={paper} onChange={(event) => setPaper(event.target.value)} className={controlClass}>
+                      {PAPER_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+
+                    <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
+                      {([ ["black-and-white", "Ч/б"], ["color", "Цветная"] ] as const).map(([value, label]) => {
+                        const isSelected = colorMode === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-pressed={isSelected}
+                            onClick={() => setColorMode(value)}
+                            className={`rounded-lg px-2 py-2 text-sm font-bold transition ${
+                              isSelected ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200" : "text-slate-600 hover:text-slate-900"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
 
               {uploaded && (
                 <div className="space-y-2 border-t border-slate-100 pt-3">

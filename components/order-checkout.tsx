@@ -5,6 +5,11 @@ import type { GuestOrder } from "@/lib/order-checkout";
 import { reachMetrikaGoal } from "@/lib/metrika";
 import { YandexPickupWidget, type YandexPickupPoint } from "@/components/yandex-pickup-widget";
 import { OzonPickupPicker, type OzonPickupPoint } from "@/components/ozon-pickup-picker";
+import Link from "next/link";
+import { SiteHeader } from "@/components/site-header";
+import { SiteFooter } from "@/components/site-footer";
+import { FreeDeliveryProgress } from "@/components/free-delivery-progress";
+import { formatDeliveryPrice } from "@/lib/delivery";
 
 const fieldClass = "mt-2 w-full rounded-xl border border-slate-300 px-4 py-3";
 const statusLabels: Record<string, string> = {
@@ -168,40 +173,287 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
   const retryablePayment = ["REJECTED", "CANCELED", "CANCELLED", "DEADLINE_EXPIRED"].includes(order.payment_status ?? "");
   const deliveryLabel = order.fulfillment_method === "yandex_pickup_point" ? "Доставка в ПВЗ Яндекс Доставки"
     : order.fulfillment_method === "ozon_pickup_point" ? "Доставка в ПВЗ Ozon" : "Самовывоз";
-  return <main className="min-h-screen bg-slate-50 px-5 py-10 text-slate-900">
-    <div className="mx-auto max-w-2xl rounded-2xl bg-white p-6 shadow-sm sm:p-8">
-      <a href="/" className="font-black text-blue-700">РАСПЕЧАТКА</a>
-      <h1 className="mt-6 text-2xl font-bold">{pending ? "Оформление заказа" : (statusLabels[order.status] ?? "Ваш заказ")}</h1>
-      <p className="mt-2 text-slate-600">Номер: {order.order_number}</p>
-      <p className="mt-4 text-xl font-bold">Стоимость печати: {order.print_price.toLocaleString("ru-RU")} ₽</p>
-      {!pending && order.delivery_price !== null && <p className="mt-2 text-lg font-semibold">Доставка: {order.delivery_price.toLocaleString("ru-RU")} ₽</p>}
-      {!pending && order.delivery_price !== null && <p className="mt-1 text-xl font-bold">Итого: {order.total_price.toLocaleString("ru-RU")} ₽</p>}
-      {pending ? <form onSubmit={submit} className="mt-6 space-y-5">
-        <p className="text-slate-600">Файлы сохранены. Укажите контакты и перейдите к безопасной оплате на странице Т‑Банка.</p>
-        <label className="block font-semibold">Имя *<input required minLength={2} maxLength={120} autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} className={fieldClass} /></label>
-        <label className="block font-semibold">Телефон *<input required type="tel" maxLength={40} autoComplete="tel" placeholder="+7 900 000-00-00" value={phone} onChange={(event) => setPhone(event.target.value)} className={fieldClass} /></label>
-        <label className="block font-semibold">Email для кассового чека *<input required type="email" maxLength={254} autoComplete="email" placeholder="name@example.com" value={email} onChange={(event) => setEmail(event.target.value)} className={fieldClass} /></label>
-        <label className="block font-semibold">Комментарий<textarea maxLength={2000} rows={3} value={comment} onChange={(event) => setComment(event.target.value)} className={fieldClass} /></label>
-        <fieldset className="rounded-xl border border-slate-200 p-4"><legend className="font-bold">Получение</legend><div className="mt-3 space-y-3">
-          <label className="flex cursor-pointer gap-2"><input type="radio" name="fulfillment" checked={method === "pickup"} onChange={() => { setMethod("pickup"); setPoint(null); setDeliveryQuote(null); }} />Самовывоз — бесплатно</label>
-          <label className="flex cursor-pointer gap-2"><input type="radio" name="fulfillment" checked={method === "yandex_pickup_point"} onChange={() => { setMethod("yandex_pickup_point"); setPaymentMethod("online"); }} />Доставка в ПВЗ Яндекс Доставки — только онлайн-оплата</label>
-          <label className="flex cursor-pointer gap-2"><input type="radio" name="fulfillment" checked={method === "ozon_pickup_point"} onChange={() => { setMethod("ozon_pickup_point"); setPaymentMethod("online"); setPoint(null); setDeliveryQuote(null); }} />Доставка в ПВЗ Ozon — только онлайн-оплата</label>
-        </div>{method === "ozon_pickup_point" && <><OzonPickupPicker selected={ozonPoint} onSelect={selectOzonPoint} />{ozonPoint && <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm"><p className="font-semibold">Пункт Ozon: {ozonPoint.address}</p>{quotingOzon && <p className="mt-1">Рассчитываем стоимость доставки…</p>}{activeOzonQuote && <><p className="mt-1">Доставка: {activeOzonQuote.deliveryPriceRubles.toLocaleString("ru-RU")} ₽</p>{activeOzonQuote.insurancePriceRubles > 0 && <p>Страховка: {activeOzonQuote.insurancePriceRubles.toLocaleString("ru-RU")} ₽</p>}{activeOzonQuote.deliveryDays !== null && <p>Ориентировочный срок: до {activeOzonQuote.deliveryDays} дн.</p>}<p className="mt-1 font-bold">К оплате: {(order.print_price + activeOzonQuote.priceRubles).toLocaleString("ru-RU")} ₽</p></>}{!activeOzonQuote && !quotingOzon && <p className="mt-1 text-slate-600">Укажите телефон, зарегистрированный на Ozon, — он нужен для расчёта.</p>}</div>}</>}{method === "yandex_pickup_point" && <><YandexPickupWidget weightGrams={Math.max(1, order.package_weight_grams ?? 1)} onSelect={selectPoint} />{point && <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm"><p className="font-semibold">Пункт выдачи: {point.address}</p>{quotingDelivery && <p className="mt-1">Рассчитываем стоимость доставки…</p>}{deliveryQuote && <><p className="mt-1">Доставка: {deliveryQuote.priceRubles.toLocaleString("ru-RU")} ₽</p>{deliveryQuote.deliveryDays !== null && <p>Ориентировочный срок: до {deliveryQuote.deliveryDays} дн.</p>}<p className="mt-1 font-bold">К оплате: {(order.print_price + deliveryQuote.priceRubles).toLocaleString("ru-RU")} ₽</p></>}</div>}</>}</fieldset>
-        {method === "pickup" ? <fieldset className="rounded-xl border border-slate-200 p-4"><legend className="font-bold">Оплата</legend><div className="mt-3 space-y-3"><label className="flex cursor-pointer gap-2"><input type="radio" name="payment" checked={paymentMethod === "online"} onChange={() => setPaymentMethod("online")} />Оплатить онлайн через Т‑Банк</label><label className="flex cursor-pointer gap-2"><input type="radio" name="payment" checked={paymentMethod === "on_receipt"} onChange={() => setPaymentMethod("on_receipt")} />Оплатить при получении</label></div></fieldset> : <p className="text-sm text-slate-600">Оплата: онлайн через Т‑Банк. В сумму войдут печать и доставка.</p>}
-        {error && <p role="alert" className="text-red-700">{error}</p>}
-        <button disabled={busy || (method === "yandex_pickup_point" && (!point || !deliveryQuote || quotingDelivery)) || (method === "ozon_pickup_point" && (!ozonPoint || !activeOzonQuote || quotingOzon))} className="w-full rounded-xl bg-blue-700 px-4 py-3 font-bold text-white disabled:opacity-50">{busy ? (paymentMethod === "online" ? "Переходим к оплате…" : "Оформляем заказ…") : paymentMethod === "online" ? "Перейти к оплате" : "Оформить заказ"}</button>
-      </form> : <div className="mt-6 space-y-3">
-        <p>{order.customer_name} · {order.customer_phone}</p><p>Получение: {deliveryLabel}.</p>
-        {order.pickup_point_address && <p>Пункт: {order.pickup_point_address} ({["terminal", "ozon_postamat"].includes(order.pickup_point_type ?? "") ? "постамат" : "ПВЗ"}).</p>}
-        {order.fulfillment_method === "ozon_pickup_point" && order.ozon_delivery_price !== null && <p>Доставка Ozon: {order.ozon_delivery_price.toLocaleString("ru-RU")} ₽{order.ozon_insurance_price ? `, страховка: ${order.ozon_insurance_price.toLocaleString("ru-RU")} ₽` : ""}{order.ozon_delivery_days !== null ? `, срок до ${order.ozon_delivery_days} дн.` : ""}</p>}
-        {order.ozon_order_number && <p>Заказ в Ozon: {order.ozon_order_number}</p>}
-        <p>Оплата: онлайн через Т‑Банк.</p>{order.fulfillment_method === "yandex_pickup_point" && <p>Стоимость доставки уточняется.</p>}
-        {order.customer_comment && <p className="whitespace-pre-wrap">{order.customer_comment}</p>}
-        {awaitingPayment && (retryablePayment ? <div className="space-y-3 rounded-xl bg-red-50 p-4 text-red-900"><p className="font-semibold">Оплата не прошла.</p><p className="text-sm">Банк отклонил платёж. Средства по этой попытке не списаны. Можно безопасно начать новую попытку оплаты.</p><button type="button" onClick={() => void retryPayment()} disabled={busy} className="rounded-xl bg-blue-700 px-4 py-2 font-semibold text-white disabled:opacity-50">{busy ? "Переходим к оплате…" : "Попробовать оплатить снова"}</button></div> : <div className="space-y-3"><p>Проверяем подтверждение оплаты от Т‑Банка.</p><button type="button" onClick={() => void reconcilePayment()} disabled={checkingPayment} className="rounded-xl border border-blue-700 px-4 py-2 font-semibold text-blue-700 disabled:opacity-50">{checkingPayment ? "Проверяем…" : "Проверить оплату"}</button></div>)}
-        {order.status === "paid" && <p className="font-semibold text-emerald-700">Оплата подтверждена. Заказ передан оператору в работу.</p>}
-        {order.status === "new" && <p>Оператор проверит файлы и свяжется с вами для подтверждения.</p>}
-        <a className="inline-block font-semibold text-blue-700 underline" href="/">Оформить ещё один заказ</a>
-      </div>}
-    </div>
-  </main>;
+  return (
+    <main className="min-h-screen bg-white text-slate-900">
+      <SiteHeader />
+
+      <section className="border-b border-slate-100 bg-gradient-to-b from-blue-50/60 to-white">
+        <div className="mx-auto max-w-[1200px] px-5 py-8 sm:py-10">
+          <nav className="text-sm text-slate-500" aria-label="Навигация">
+            <Link href="/" className="hover:text-blue-700">Главная</Link> /{" "}
+            <Link href="/order" className="hover:text-blue-700">Заказ</Link> /{" "}
+            <span className="text-slate-700">Оформление</span>
+          </nav>
+
+          <div className="mt-4 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h1 className="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+                {pending ? "Оформление заказа" : (statusLabels[order.status] ?? "Ваш заказ")}
+              </h1>
+              <p className="mt-2 text-slate-600">Заказ № {order.order_number}</p>
+            </div>
+
+            <ol
+              className="grid w-full max-w-md grid-cols-3 gap-2 text-xs font-semibold text-slate-500 sm:text-sm"
+              aria-label="Этапы заказа"
+            >
+              <li>
+                <span className="block h-1.5 rounded-full bg-blue-600" />
+                <span className="mt-2 block text-slate-900">1. Файлы</span>
+              </li>
+              <li aria-current="step">
+                <span className="block h-1.5 rounded-full bg-blue-600" />
+                <span className="mt-2 block text-slate-900">2. Оформление</span>
+              </li>
+              <li>
+                <span className="block h-1.5 rounded-full bg-slate-200" />
+                <span className="mt-2 block">3. Оплата</span>
+              </li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <div className="mx-auto max-w-[1200px] px-5 py-8">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]">
+          <div className="min-w-0">
+            {pending ? (
+              <form onSubmit={submit} className="space-y-5">
+                <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                  <h2 className="text-lg font-black text-slate-950">Контакты</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Файлы сохранены. Укажите, с кем связаться, и переходите к оплате.
+                  </p>
+
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <label className="block text-sm font-semibold text-slate-800">
+                      Имя *
+                      <input required minLength={2} maxLength={120} autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} className={fieldClass} />
+                    </label>
+
+                    <label className="block text-sm font-semibold text-slate-800">
+                      Телефон *
+                      <input required type="tel" maxLength={40} autoComplete="tel" placeholder="+7 900 000-00-00" value={phone} onChange={(event) => setPhone(event.target.value)} className={fieldClass} />
+                    </label>
+
+                    <label className="block text-sm font-semibold text-slate-800 sm:col-span-2">
+                      Email для кассового чека *
+                      <input required type="email" maxLength={254} autoComplete="email" placeholder="name@example.com" value={email} onChange={(event) => setEmail(event.target.value)} className={fieldClass} />
+                    </label>
+
+                    <label className="block text-sm font-semibold text-slate-800 sm:col-span-2">
+                      Комментарий
+                      <textarea maxLength={2000} rows={3} value={comment} onChange={(event) => setComment(event.target.value)} className={fieldClass} />
+                    </label>
+                  </div>
+                </section>
+
+                <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                  <h2 className="text-lg font-black text-slate-950">Получение</h2>
+
+                  <div className="mt-3 space-y-2">
+                    <label className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition ${method === "pickup" ? "border-blue-600 bg-blue-50/60 ring-1 ring-blue-200" : "border-slate-200 hover:bg-slate-50"}`}>
+                      <input type="radio" name="fulfillment" className="mt-1 h-4 w-4 shrink-0" checked={method === "pickup"} onChange={() => { setMethod("pickup"); setPoint(null); setDeliveryQuote(null); }} />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-bold text-slate-900">Самовывоз</span>
+                        <span className="mt-0.5 block text-xs leading-5 text-slate-500">Воронеж, ул. Шукшина, д. 21, офис 8 — бесплатно</span>
+                      </span>
+                    </label>
+
+                    <label className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition ${method === "yandex_pickup_point" ? "border-blue-600 bg-blue-50/60 ring-1 ring-blue-200" : "border-slate-200 hover:bg-slate-50"}`}>
+                      <input type="radio" name="fulfillment" className="mt-1 h-4 w-4 shrink-0" checked={method === "yandex_pickup_point"} onChange={() => { setMethod("yandex_pickup_point"); setPaymentMethod("online"); }} />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-bold text-slate-900">Яндекс Доставка в ПВЗ</span>
+                        <span className="mt-0.5 block text-xs leading-5 text-slate-500">Только онлайн-оплата</span>
+                      </span>
+                    </label>
+
+                    <label className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition ${method === "ozon_pickup_point" ? "border-blue-600 bg-blue-50/60 ring-1 ring-blue-200" : "border-slate-200 hover:bg-slate-50"}`}>
+                      <input type="radio" name="fulfillment" className="mt-1 h-4 w-4 shrink-0" checked={method === "ozon_pickup_point"} onChange={() => { setMethod("ozon_pickup_point"); setPaymentMethod("online"); setPoint(null); setDeliveryQuote(null); }} />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-bold text-slate-900">Ozon в ПВЗ</span>
+                        <span className="mt-0.5 block text-xs leading-5 text-slate-500">Только онлайн-оплата</span>
+                      </span>
+                    </label>
+                  </div>
+
+                  {method === "ozon_pickup_point" && (
+                    <>
+                      <OzonPickupPicker selected={ozonPoint} onSelect={selectOzonPoint} />
+                      {ozonPoint && (
+                        <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm">
+                          <p className="font-semibold text-slate-900">Пункт Ozon: {ozonPoint.address}</p>
+                          {quotingOzon && <p className="mt-1 text-slate-600">Рассчитываем стоимость доставки…</p>}
+                          {activeOzonQuote && (
+                            <>
+                              <p className="mt-1 text-slate-700">Доставка: {formatDeliveryPrice(activeOzonQuote.deliveryPriceRubles)}</p>
+                              {activeOzonQuote.insurancePriceRubles > 0 && <p className="text-slate-700">Страховка: {activeOzonQuote.insurancePriceRubles.toLocaleString("ru-RU")} ₽</p>}
+                              {activeOzonQuote.deliveryDays !== null && <p className="text-slate-700">Ориентировочный срок: до {activeOzonQuote.deliveryDays} дн.</p>}
+                              <p className="mt-1 font-bold text-slate-950">К оплате: {(order.print_price + activeOzonQuote.priceRubles).toLocaleString("ru-RU")} ₽</p>
+                            </>
+                          )}
+                          {!activeOzonQuote && !quotingOzon && <p className="mt-1 text-slate-600">Укажите телефон, зарегистрированный на Ozon, — он нужен для расчёта.</p>}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {method === "yandex_pickup_point" && (
+                    <>
+                      <YandexPickupWidget weightGrams={Math.max(1, order.package_weight_grams ?? 1)} onSelect={selectPoint} />
+                      {point && (
+                        <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm">
+                          <p className="font-semibold text-slate-900">Пункт выдачи: {point.address}</p>
+                          {quotingDelivery && <p className="mt-1 text-slate-600">Рассчитываем стоимость доставки…</p>}
+                          {deliveryQuote && (
+                            <>
+                              <p className="mt-1 text-slate-700">Доставка: {formatDeliveryPrice(deliveryQuote.priceRubles)}</p>
+                              {deliveryQuote.deliveryDays !== null && <p className="text-slate-700">Ориентировочный срок: до {deliveryQuote.deliveryDays} дн.</p>}
+                              <p className="mt-1 font-bold text-slate-950">К оплате: {(order.print_price + deliveryQuote.priceRubles).toLocaleString("ru-RU")} ₽</p>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </section>
+
+                <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                  <h2 className="text-lg font-black text-slate-950">Оплата</h2>
+
+                  {method === "pickup" ? (
+                    <div className="mt-3 space-y-2">
+                      <label className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition ${paymentMethod === "online" ? "border-blue-600 bg-blue-50/60 ring-1 ring-blue-200" : "border-slate-200 hover:bg-slate-50"}`}>
+                        <input type="radio" name="payment" className="mt-1 h-4 w-4 shrink-0" checked={paymentMethod === "online"} onChange={() => setPaymentMethod("online")} />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-bold text-slate-900">Оплатить онлайн</span>
+                          <span className="mt-0.5 block text-xs leading-5 text-slate-500">Безопасная оплата картой через Т-Банк</span>
+                        </span>
+                      </label>
+
+                      <label className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition ${paymentMethod === "on_receipt" ? "border-blue-600 bg-blue-50/60 ring-1 ring-blue-200" : "border-slate-200 hover:bg-slate-50"}`}>
+                        <input type="radio" name="payment" className="mt-1 h-4 w-4 shrink-0" checked={paymentMethod === "on_receipt"} onChange={() => setPaymentMethod("on_receipt")} />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-bold text-slate-900">Оплатить при получении</span>
+                          <span className="mt-0.5 block text-xs leading-5 text-slate-500">Наличными или картой в пункте выдачи</span>
+                        </span>
+                      </label>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      Оплата онлайн через Т-Банк. В сумму войдут печать и доставка.
+                    </p>
+                  )}
+                </section>
+
+                {error && (
+                  <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700 ring-1 ring-red-100">
+                    {error}
+                  </p>
+                )}
+
+                <button
+                  disabled={busy || (method === "yandex_pickup_point" && (!point || !deliveryQuote || quotingDelivery)) || (method === "ozon_pickup_point" && (!ozonPoint || !activeOzonQuote || quotingOzon))}
+                  className="w-full rounded-xl bg-amber-500 px-5 py-4 font-bold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {busy
+                    ? (paymentMethod === "online" ? "Переходим к оплате…" : "Оформляем заказ…")
+                    : (paymentMethod === "online" ? "Перейти к оплате" : "Оформить заказ")}
+                </button>
+              </form>
+            ) : (
+              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                <h2 className="text-lg font-black text-slate-950">Детали заказа</h2>
+
+                <div className="mt-4 space-y-2 text-sm text-slate-700">
+                  <p>{order.customer_name} · {order.customer_phone}</p>
+                  <p>Получение: {deliveryLabel}.</p>
+                  {order.pickup_point_address && (
+                    <p>
+                      Пункт: {order.pickup_point_address}{" "}
+                      ({["terminal", "ozon_postamat"].includes(order.pickup_point_type ?? "") ? "постамат" : "ПВЗ"}).
+                    </p>
+                  )}
+                  {order.fulfillment_method === "ozon_pickup_point" && order.ozon_delivery_price !== null && (
+                    <p>
+                      Доставка Ozon: {formatDeliveryPrice(order.ozon_delivery_price)}
+                      {order.ozon_insurance_price ? `, страховка: ${order.ozon_insurance_price.toLocaleString("ru-RU")} ₽` : ""}
+                      {order.ozon_delivery_days !== null ? `, срок до ${order.ozon_delivery_days} дн.` : ""}
+                    </p>
+                  )}
+                  {order.ozon_order_number && <p>Заказ в Ozon: {order.ozon_order_number}</p>}
+                  <p>Оплата: онлайн через Т-Банк.</p>
+                  {order.fulfillment_method === "yandex_pickup_point" && <p>Стоимость доставки уточняется.</p>}
+                  {order.customer_comment && <p className="whitespace-pre-wrap">{order.customer_comment}</p>}
+                </div>
+
+                {awaitingPayment && (
+                  retryablePayment ? (
+                    <div className="mt-5 space-y-3 rounded-xl bg-red-50 p-4 text-red-900">
+                      <p className="font-semibold">Оплата не прошла.</p>
+                      <p className="text-sm">Банк отклонил платёж. Средства по этой попытке не списаны. Можно безопасно начать новую попытку оплаты.</p>
+                      <button type="button" onClick={() => void retryPayment()} disabled={busy} className="rounded-xl bg-blue-700 px-4 py-2 font-semibold text-white transition hover:bg-blue-800 disabled:opacity-50">
+                        {busy ? "Переходим к оплате…" : "Попробовать снова"}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-5 rounded-xl bg-slate-50 p-4">
+                      <p className="text-sm text-slate-700">Ожидаем подтверждение оплаты от банка. Обычно это занимает несколько секунд.</p>
+                      <button type="button" onClick={() => void reconcilePayment()} disabled={checkingPayment} className="mt-3 rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:opacity-50">
+                        {checkingPayment ? "Проверяем…" : "Проверить статус оплаты"}
+                      </button>
+                    </div>
+                  )
+                )}
+
+                {order.status === "paid" && <p className="mt-5 font-semibold text-emerald-700">Оплата подтверждена. Заказ передан оператору в работу.</p>}
+                {order.status === "new" && <p className="mt-5 text-sm text-slate-700">Оператор проверит файлы и свяжется с вами для подтверждения.</p>}
+
+                <Link href="/" className="mt-6 inline-block font-semibold text-blue-700 underline">Оформить ещё один заказ</Link>
+              </section>
+            )}
+          </div>
+
+          <aside className="min-w-0 space-y-5 lg:self-start">
+            <FreeDeliveryProgress printPrice={order.print_price} />
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+              <h2 className="text-lg font-black text-slate-950">Ваш заказ</h2>
+
+              <dl className="mt-4 space-y-2.5 border-b border-slate-100 pb-4 text-sm">
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-600">Печать</dt>
+                  <dd className="font-semibold text-slate-900">{order.print_price.toLocaleString("ru-RU")} ₽</dd>
+                </div>
+
+                {!pending && order.delivery_price !== null && (
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-600">Доставка</dt>
+                    <dd className={`font-semibold ${order.delivery_price === 0 ? "text-emerald-700" : "text-slate-900"}`}>
+                      {formatDeliveryPrice(order.delivery_price)}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+
+              <div className="mt-4 flex items-baseline justify-between gap-4">
+                <span className="text-lg font-black text-slate-950">Итого:</span>
+                <span className="text-3xl font-black text-slate-950">
+                  {(pending ? order.print_price : order.total_price).toLocaleString("ru-RU")} ₽
+                </span>
+              </div>
+
+              {pending && (
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Доставка рассчитывается после выбора способа получения.
+                </p>
+              )}
+            </div>
+          </aside>
+        </div>
+      </div>
+
+      <SiteFooter />
+    </main>
+  );
 }

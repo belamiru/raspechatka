@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { ensureOrderCheckoutSchema, hashGuestToken, ORDER_GUEST_COOKIE } from "@/lib/order-checkout";
 import { calculateYandexPickupDelivery } from "@/lib/yandex-delivery";
 import { checkRateLimit, getRequestId, logAppError } from "@/lib/security";
+import { applyFreeDelivery } from "@/lib/delivery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +32,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       pickupPointId, printPriceRubles: Number(saved.print_price),
       package: { weightGrams: Number(saved.package_weight_grams), widthMm: Number(saved.package_width_mm), lengthMm: Number(saved.package_length_mm), heightMm: Number(saved.package_height_mm) },
     });
-    return NextResponse.json(quote, { headers: { "Cache-Control": "private, no-store" } });
+    /* Порог бесплатной доставки применяем и здесь: эту цену видит покупатель. */
+    return NextResponse.json(
+      { ...quote, priceRubles: applyFreeDelivery(quote.priceRubles, Number(saved.print_price)) },
+      { headers: { "Cache-Control": "private, no-store" } }
+    );
   } catch (error) {
     await logAppError({ request, requestId, scope: "yandex_delivery_quote", error });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Не удалось рассчитать доставку." }, { status: 502 });

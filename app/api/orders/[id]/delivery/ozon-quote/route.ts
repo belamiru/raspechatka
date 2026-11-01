@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { ensureOrderCheckoutSchema, hashGuestToken, ORDER_GUEST_COOKIE } from "@/lib/order-checkout";
 import { quoteOzonPickupDelivery } from "@/lib/ozon-order";
 import { checkRateLimit, getRequestId, logAppError } from "@/lib/security";
+import { applyFreeDelivery } from "@/lib/delivery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,7 +43,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         lengthMm: Number(saved.package_length_mm), heightMm: Number(saved.package_height_mm),
       },
     });
-    return NextResponse.json(quote, { headers: { "Cache-Control": "private, no-store" } });
+    const printPrice = Number(saved.print_price);
+
+    return NextResponse.json(
+      {
+        ...quote,
+        deliveryPriceRubles: applyFreeDelivery(quote.deliveryPriceRubles, printPrice),
+        priceRubles: applyFreeDelivery(quote.priceRubles, printPrice),
+      },
+      { headers: { "Cache-Control": "private, no-store" } }
+    );
   } catch (error) {
     await logAppError({ request, requestId, scope: "ozon_delivery_quote", error });
     return NextResponse.json({ error: error instanceof Error ? error.message : "Не удалось рассчитать доставку Ozon." }, { status: 502 });

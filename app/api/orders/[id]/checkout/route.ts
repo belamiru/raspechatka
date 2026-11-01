@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getGuestOrder, hashGuestToken, ORDER_GUEST_COOKIE } from "@/lib/order-checkout";
 import { checkRateLimit, getRequestId, logAppError } from "@/lib/security";
+import { applyFreeDelivery } from "@/lib/delivery";
 import { calculateYandexPickupDelivery } from "@/lib/yandex-delivery";
 import { quoteOzonPickupDelivery } from "@/lib/ozon-order";
 
@@ -95,7 +96,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           lengthMm: Number(orderForPricing.package_length_mm), heightMm: Number(orderForPricing.package_height_mm),
         },
       });
-      deliveryPrice = quote.priceRubles;
+      deliveryPrice = applyFreeDelivery(quote.priceRubles, Number(orderForPricing.print_price));
     }
     if (fulfillmentMethod === "ozon_pickup_point") {
       // Price is recalculated on the server right before the order is fixed:
@@ -114,7 +115,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       ozonInsurancePrice = quote.insurancePriceRubles;
       ozonDeliveryDays = quote.deliveryDays;
       ozonCutoffAt = quote.cutoffAt;
-      deliveryPrice = quote.priceRubles;
+      /* От Ozon приходит своя цена; порог бесплатной доставки обнуляет её так же. */
+      deliveryPrice = applyFreeDelivery(quote.priceRubles, Number(orderForPricing.print_price));
+      if (deliveryPrice === 0) ozonDeliveryPrice = 0;
     }
     // The conditional update also makes retries and concurrent submissions harmless.
     await db.query(`
