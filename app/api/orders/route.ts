@@ -10,6 +10,7 @@ import {
   getExtrasPrice,
   type CoverSet,
   type PhotoFit,
+  type PhotoFormat,
   type PrintExtraOptions,
 } from "@/lib/print-extras";
 import { calculateOrderParcel } from "@/lib/order-parcel";
@@ -192,6 +193,7 @@ function parseExtras(rawValue: unknown): PrintExtraOptions | null {
   const staple = value.staple;
   const coverSet = value.coverSet;
   const photoFit = value.photoFit;
+  const photoFormat = value.photoFormat;
 
   if (paper !== "80" && paper !== "120" && paper !== "250") return null;
   if (lamination !== "none" && lamination !== "matte" && lamination !== "gloss") return null;
@@ -214,6 +216,11 @@ function parseExtras(rawValue: unknown): PrintExtraOptions | null {
 
   const normalizedPhotoFit: PhotoFit = photoFit === "contain" ? "contain" : "crop";
 
+  const normalizedPhotoFormat: PhotoFormat =
+    photoFormat === "A5" || photoFormat === "A4" || photoFormat === "A3" || photoFormat === "10x15"
+      ? photoFormat
+      : "10x15";
+
   return {
     paper,
     lamination,
@@ -224,6 +231,7 @@ function parseExtras(rawValue: unknown): PrintExtraOptions | null {
     backCover,
     staple,
     photoFit: normalizedPhotoFit,
+    photoFormat: normalizedPhotoFormat,
   };
 }
 
@@ -585,7 +593,14 @@ export async function POST(request: Request) {
       const pricing =
         item.kind === "image"
           ? (() => {
-              const photoPricing = getPhotoPriceForCount(item.settings.copies);
+              /*
+               * Формат фотобумаги приходит в доп. опциях: цена за отпечаток
+               * зависит от размера листа, а не от страницы A4.
+               */
+              const photoPricing = getPhotoPriceForCount(
+                item.settings.copies,
+                item.settings.extras.photoFormat
+              );
 
               return {
                 ...getPrintPriceForPages({

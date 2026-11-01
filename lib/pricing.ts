@@ -4,7 +4,39 @@ export type PaperFormat = "A4" | "A3";
  * Фотопечать 10×15 (A6) считается не по страницам, а по количеству отпечатков.
  * Ступени объёма задаёт типография; 300-й отпечаток уже идёт по нижней цене.
  */
-export type PhotoSize = "10x15";
+/*
+ * Форматы фотобумаги. Цена за отпечаток растёт от площади листа:
+ * A5 — в 2,5 раза дороже 10×15, A4 — в 5 раз, A3 — вдвое дороже A4.
+ * Матовая и глянцевая плёнка стоят одинаково, поэтому тип поверхности
+ * на цену не влияет и в расчёте не участвует.
+ */
+export type PhotoFormat = "10x15" | "A5" | "A4" | "A3";
+
+export const PHOTO_FORMATS: {
+  id: PhotoFormat;
+  label: string;
+  note: string;
+  /* Множитель к цене отпечатка 10×15. */
+  multiplier: number;
+}[] = [
+  { id: "10x15", label: "10×15", note: "A6", multiplier: 1 },
+  { id: "A5", label: "A5", note: "×2,5", multiplier: 2.5 },
+  { id: "A4", label: "A4", note: "×5", multiplier: 5 },
+  { id: "A3", label: "A3", note: "×10", multiplier: 10 },
+];
+
+export const DEFAULT_PHOTO_FORMAT: PhotoFormat = "10x15";
+
+/** Множитель формата к цене отпечатка 10×15. */
+export function getPhotoFormatMultiplier(format: PhotoFormat) {
+  return PHOTO_FORMATS.find((item) => item.id === format)?.multiplier ?? 1;
+}
+
+/** Цена одного отпечатка в выбранном формате по тарифной ступени. */
+export function getPhotoUnitPrice(tier: PhotoPriceTier, format: PhotoFormat) {
+  /* Округляем вверх до рубля: полкопейки в чеке выглядели бы странно. */
+  return Math.ceil(tier.pricePerPhoto * getPhotoFormatMultiplier(format));
+}
 
 export type PhotoPriceTier = {
   from: number;
@@ -22,7 +54,10 @@ export const PHOTO_PRICE_TIERS: PhotoPriceTier[] = [
 ];
 
 /** Цена фотопечати за указанное количество отпечатков. */
-export function getPhotoPriceForCount(quantity: number) {
+export function getPhotoPriceForCount(
+  quantity: number,
+  format: PhotoFormat = DEFAULT_PHOTO_FORMAT
+) {
   const validQuantity = Math.max(1, Math.floor(quantity));
 
   const tier =
@@ -32,11 +67,14 @@ export function getPhotoPriceForCount(quantity: number) {
         (validQuantity >= item.from && validQuantity <= item.to)
     ) ?? PHOTO_PRICE_TIERS[0];
 
+  const unitPrice = getPhotoUnitPrice(tier, format);
+
   return {
     quantity: validQuantity,
     tier,
-    unitPrice: tier.pricePerPhoto,
-    totalPrice: validQuantity * tier.pricePerPhoto,
+    format,
+    unitPrice,
+    totalPrice: validQuantity * unitPrice,
   };
 }
 export type PrintSides = "one-sided" | "two-sided";

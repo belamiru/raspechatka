@@ -21,6 +21,14 @@ export type PendingOrderFile = {
   draftId: string | null;
   previewUrl: string | null;
   printSettings: FilePrintSettings;
+  /*
+   * Опции, выбранные в виджете на главной. Сервер посчитает заказ по ним же,
+   * поэтому терять их при переходе нельзя.
+   */
+  printExtras?: {
+    photoFormat: "10x15" | "A5" | "A4" | "A3";
+    photoFit: "crop" | "contain";
+  };
 };
 
 let pendingFiles: PendingOrderFile[] = [];

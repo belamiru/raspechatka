@@ -1,4 +1,9 @@
-import type { PaperFormat, PagePrintOption, PrintSides } from "@/lib/pricing";
+import type {
+  PaperFormat,
+  PagePrintOption,
+  PhotoFormat,
+  PrintSides,
+} from "@/lib/pricing";
 
 /*
  * Дополнительные опции печати и их цены.
@@ -21,6 +26,8 @@ export type CoverSet = "none" | "front" | "back" | "both";
 
 /* Как вписать снимок в лист фотобумаги. */
 export type PhotoFit = "crop" | "contain";
+
+export type { PhotoFormat } from "@/lib/pricing";
 export type StapleSide = "none" | "left" | "right";
 
 export type PrintExtraOptions = {
@@ -34,6 +41,8 @@ export type PrintExtraOptions = {
   staple: StapleSide;
   /* Влияет только на фотопечать, для документов игнорируется. */
   photoFit: PhotoFit;
+  /* Формат фотобумаги: 10×15, A5, A4 или A3. Тоже только для фотопечати. */
+  photoFormat: PhotoFormat;
 };
 
 export const DEFAULT_PRINT_EXTRA_OPTIONS: PrintExtraOptions = {
@@ -46,6 +55,7 @@ export const DEFAULT_PRINT_EXTRA_OPTIONS: PrintExtraOptions = {
   backCover: "transparent",
   staple: "none",
   photoFit: "crop",
+  photoFormat: "10x15",
 };
 
 /* Цена ламинации за лист, руб. Зависит от формата листа и плотности плёнки. */

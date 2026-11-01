@@ -23,6 +23,13 @@ type PrintSettingsPanelProps = {
    * повторного названия файла и без цены (они уже есть в карточке).
    */
   variant?: "card" | "inline";
+
+  /*
+   * Для фотопечати формат, цвет и стороны задаются в опциях фото, поэтому
+   * здесь остаётся только количество. Иначе пользователь видит A4/A3
+   * и чёрно-белую печать, которых у фотобумаги не бывает.
+   */
+  photoMode?: boolean;
 };
 
 function getFileKindLabel(item: OrderFileListItem) {
@@ -164,6 +171,7 @@ export function PrintSettingsPanel({
   selectedFilePrice,
   onPrintSettingsChange,
   variant = "card",
+  photoMode = false,
 }: PrintSettingsPanelProps) {
   const isInline = variant === "inline";
   const shellClass = isInline
@@ -231,6 +239,8 @@ export function PrintSettingsPanel({
       )}
 
       <fieldset disabled={!isReady} className={`${isInline ? "" : "mt-4"} grid min-w-0 gap-4 border-0 p-0 ${isInline ? "sm:grid-cols-2" : ""}`}>
+        {!photoMode && (
+        <>
         <Segmented
           label="Формат"
           value={settings.defaults.paperFormat}
@@ -260,9 +270,13 @@ export function PrintSettingsPanel({
           ]}
           onChange={(printSides) => changeSettings({ printSides })}
         />
+        </>
+        )}
 
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Количество</p>
+        <div className={`flex items-center justify-between gap-3 ${photoMode ? "sm:col-span-2" : ""}`}>
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+            {photoMode ? "Количество отпечатков" : "Количество"}
+          </p>
           <CopiesInput
             key={selectedFile.id}
             value={settings.copies}
@@ -272,12 +286,14 @@ export function PrintSettingsPanel({
         </div>
       </fieldset>
 
-      <p className="mt-3 text-xs leading-5 text-slate-500">
-        {isImage
-          ? "Изображения печатаются только односторонне."
-          : "Двусторонняя печать уменьшает число листов, но не меняет цену страницы."}{" "}
-        Цвет можно задать отдельно для страниц в предпросмотре.
-      </p>
+      {!photoMode && (
+        <p className="mt-3 text-xs leading-5 text-slate-500">
+          {isImage
+            ? "Изображения печатаются только односторонне."
+            : "Двусторонняя печать уменьшает число листов, но не меняет цену страницы."}{" "}
+          Цвет можно задать отдельно для страниц в предпросмотре.
+        </p>
+      )}
 
       {!isInline && (
       <div className="mt-4 flex items-center justify-between gap-4 rounded-xl bg-slate-900 px-4 py-3 text-white">

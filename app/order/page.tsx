@@ -22,7 +22,7 @@ import {
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { reachMetrikaGoal } from "@/lib/metrika";
-import { getPhotoPriceForCount, getPrintPriceForPages } from "@/lib/pricing";
+import { getPhotoPriceForCount, getPrintPriceForPages, PHOTO_FORMATS } from "@/lib/pricing";
 import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageOptions } from "@/lib/print-settings";
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
 import {
@@ -69,9 +69,26 @@ export default function Home() {
   const [files, setFiles] = useState<OrderFileListItem[]>([]);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
 
+  /* Открыли опции файла — значит он настроен. */
+  function openFileSettings(id: string) {
+    setSelectedFileId(id);
+    setConfiguredFileIds((current) => {
+      if (current.has(id)) return current;
+      const next = new Set(current);
+      next.add(id);
+      return next;
+    });
+  }
+
   /* Тип печати задаётся для каждого файла: корзина бывает смешанной. */
   const [printKinds, setPrintKinds] = useState<Record<string, PrintKindId>>({});
   const [printExtras, setPrintExtras] = useState<Record<string, PrintExtraOptions>>({});
+
+  /*
+   * Файлы, у которых открывали опции. До этого карточка показывает серую
+   * точку «Ожидает настройки», после — зелёную «Настроено».
+   */
+  const [configuredFileIds, setConfiguredFileIds] = useState<Set<string>>(new Set());
 
   const [website, setWebsite] = useState("");
 
@@ -118,7 +135,10 @@ export default function Home() {
          * отпечатков, а не по страницам A4 — прайс у фотопечати свой.
          */
         if (file.kind === "image") {
-          const photoPricing = getPhotoPriceForCount(settings.copies);
+          const photoPricing = getPhotoPriceForCount(
+            settings.copies,
+            (printExtras[file.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS).photoFormat
+          );
 
           return {
             file,
@@ -145,7 +165,7 @@ export default function Home() {
           }),
         };
       }),
-    [readyFiles]
+    [readyFiles, printExtras]
   );
 
   /*
@@ -460,6 +480,27 @@ export default function Home() {
       return unique.length > 0 ? [...currentFiles, ...unique] : currentFiles;
     });
 
+    /*
+     * Опции, выбранные на главной, переносим в состояние заказа: иначе
+     * фотография приедет с форматом по умолчанию и ценой как за 10×15.
+     */
+    const extrasFromHome = Object.fromEntries(
+      pending
+        .filter((item) => item.printExtras)
+        .map((item) => [
+          item.id,
+          {
+            ...DEFAULT_PRINT_EXTRA_OPTIONS,
+            photoFormat: item.printExtras!.photoFormat,
+            photoFit: item.printExtras!.photoFit,
+          },
+        ])
+    ) as Record<string, PrintExtraOptions>;
+
+    if (Object.keys(extrasFromHome).length > 0) {
+      setPrintExtras((current) => ({ ...current, ...extrasFromHome }));
+    }
+
     setSelectedFileId((currentFileId) => currentFileId ?? incoming[0].id);
   }, []);
 
@@ -672,7 +713,14 @@ export default function Home() {
               items={files}
               onRemove={removeFile}
               selectedFileId={selectedFileId}
-              onSelectFile={setSelectedFileId}
+              onSelectFile={openFileSettings}
+              configuredFileIds={configuredFileIds}
+              getPhotoFormatLabel={(item) =>
+                PHOTO_FORMATS.find(
+                  (format) =>
+                    format.id === (printExtras[item.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS).photoFormat
+                )?.label ?? "10×15"
+              }
               prices={filePrices}
               onCollapse={() => setSelectedFileId(null)}
               renderSettings={(item) => {
@@ -694,6 +742,7 @@ export default function Home() {
 
                     <PrintSettingsPanel
                       variant="inline"
+                      photoMode={printKind === "photo"}
                       selectedFile={item}
                       selectedFilePrice={filePrices[item.id] ?? null}
                       onPrintSettingsChange={changeFilePrintSettings}
@@ -715,6 +764,8 @@ export default function Home() {
                         });
                         setPrintKinds(Object.fromEntries(files.map((file) => [file.id, printKind])) as Record<string, PrintKindId>);
                         setPrintExtras(Object.fromEntries(files.map((file) => [file.id, extras])) as Record<string, PrintExtraOptions>);
+                        /* После применения ко всем настроены все файлы заказа. */
+                        setConfiguredFileIds(new Set(files.map((file) => file.id)));
                       }}
                     />
                   </div>

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import { COLOR_PRICE_TIERS, PHOTO_PRICE_TIERS, PRINT_PRICE_TIERS } from "@/lib/pricing";
+import { COLOR_PRICE_TIERS, PHOTO_FORMATS, PHOTO_PRICE_TIERS, PRINT_PRICE_TIERS, getPhotoPriceForCount } from "@/lib/pricing";
 import {
   BINDING_PRICE,
   COVER_PRICE,
@@ -212,11 +212,24 @@ export default function PricesPage() {
         />
 
         <PriceTable
-          title="Фотопечать 10×15 (A6)"
-          description="Цена за один отпечаток на фотобумаге. Чем больше отпечатков в заказе, тем ниже цена — скидка считается по общему количеству."
-          columns={["Количество отпечатков", "Цена за штуку"]}
+          title="Фотопечать"
+          description="Цена за один отпечаток. Чем больше отпечатков в заказе, тем ниже цена — скидка считается по общему количеству. Матовая и глянцевая поверхность стоят одинаково."
+          columns={["Количество", "10×15", "A5", "A4", "A3"]}
           rows={PHOTO_PRICE_TIERS.map((tier) => ({
-            cells: [tier.label, `${tier.pricePerPhoto} ₽`],
+            cells: [
+              tier.label,
+              ...PHOTO_FORMATS.map((format) => `${getPhotoPriceForCount(tier.from, format.id).unitPrice} ₽`),
+            ],
+          }))}
+        />
+
+        <PriceTable
+          title="Форматы фотобумаги"
+          description="Чем больше лист, тем выше цена за отпечаток. Цена формата считается от 10×15 по множителю и зависит от объёма заказа."
+          columns={["Формат", "Множитель к 10×15"]}
+          rows={PHOTO_FORMATS.map((format) => ({
+            cells: [format.label, format.multiplier === 1 ? "базовый" : `×${String(format.multiplier).replace(".", ",")}`],
+            note: format.note === "A6" ? "A6 — самый маленький формат" : undefined,
           }))}
         />
 

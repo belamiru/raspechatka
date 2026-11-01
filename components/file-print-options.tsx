@@ -9,6 +9,7 @@ import {
   type ExtrasPriceBreakdown,
   type PrintExtraOptions,
 } from "@/lib/print-extras";
+import { PHOTO_FORMATS, type PhotoFormat } from "@/lib/pricing";
 
 export type { PrintExtraOptions } from "@/lib/print-extras";
 export { DEFAULT_PRINT_EXTRA_OPTIONS } from "@/lib/print-extras";
@@ -29,7 +30,7 @@ export const PRINT_KINDS = [
   {
     id: "photo",
     label: "Фото",
-    description: "Снимки 10×15, A4",
+    description: "Снимки 10×15, A5, A4, A3",
   },
   {
     id: "poster",
@@ -48,11 +49,19 @@ export type PrintKindId = (typeof PRINT_KINDS)[number]["id"];
  */
 const OPTION_GROUPS: Record<PrintKindId, readonly OptionGroupId[]> = {
   document: ["paper", "lamination", "binding", "staple"],
-  photo: ["photoFit", "lamination"],
+  /* У фотопечати свои опции: формат бумаги и кадр. Плотность, ламинация,
+     переплёт и степлер к фотографиям не относятся. */
+  photo: ["photoFormat", "photoFit"],
   poster: ["lamination"],
 };
 
-type OptionGroupId = "paper" | "lamination" | "binding" | "staple" | "photoFit";
+type OptionGroupId =
+  | "paper"
+  | "lamination"
+  | "binding"
+  | "staple"
+  | "photoFit"
+  | "photoFormat";
 
 /* Кнопка «?» с подсказкой: работает по клику, поэтому годится и для телефона. */
 function Hint({ text, label }: { text: string; label: string }) {
@@ -218,7 +227,7 @@ export function PrintExtrasOptions({
   /* Расчёт стоимости доп. опций для этого файла; null, пока файл не готов. */
   price: ExtrasPriceBreakdown | null;
 }) {
-  const { paper, lamination, laminationThickness, binding, coverSet, frontCover, backCover, staple, photoFit } = value;
+  const { paper, lamination, laminationThickness, binding, coverSet, frontCover, backCover, staple, photoFit, photoFormat } = value;
 
   function change(changes: Partial<PrintExtraOptions>) {
     onChange({ ...value, ...changes });
@@ -395,11 +404,33 @@ export function PrintExtrasOptions({
         </div>
       )}
 
+      {groups.includes("photoFormat") && (
+        <div>
+          <ChoiceRow
+            label="Формат фотобумаги"
+            hint="Чем больше лист, тем выше цена за отпечаток: A5 стоит в 2,5 раза дороже 10×15, A4 — в 5 раз, A3 — вдвое дороже A4. Матовая и глянцевая поверхность стоят одинаково."
+            value={photoFormat}
+            onChange={(next) => change({ photoFormat: next })}
+            columns={4}
+            options={PHOTO_FORMATS.map((format) => ({
+              value: format.id as PhotoFormat,
+              label: format.label,
+              note: format.note,
+            }))}
+          />
+
+          <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900">
+            Фотобумага: матовая или глянцевая — цена одинаковая, выберите при оформлении.
+            Итоговая стоимость зависит от количества отпечатков.
+          </p>
+        </div>
+      )}
+
       {groups.includes("photoFit") && (
         <div>
           <ChoiceRow
             label="Кадр фотографии"
-            hint="Фотобумага 10×15 имеет пропорцию 2:3, а снимок с телефона — другую. Нужно решить: обрезать края, чтобы заполнить лист, или оставить белые поля, сохранив весь кадр."
+            hint="У фотобумаги своя пропорция, а снимок с телефона обычно другой. Нужно решить: обрезать края, чтобы заполнить лист, или оставить белые поля, сохранив весь кадр."
             value={photoFit}
             onChange={(next) => change({ photoFit: next })}
             options={[

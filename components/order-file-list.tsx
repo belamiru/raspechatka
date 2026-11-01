@@ -56,6 +56,15 @@ type OrderFileListProps = {
 
   /* Параметры печати, которые показываются внутри карточки выбранного файла. */
   renderSettings?: (item: OrderFileListItem) => ReactNode;
+
+  /* Подпись формата фотобумаги для сводки в карточке фотографии. */
+  getPhotoFormatLabel?: (item: OrderFileListItem) => string;
+
+  /*
+   * Файлы, чьи опции уже открывали. Пока опции не открыты, честнее писать
+   * «Ожидает настройки», а не «Настроено»: пользователь мог ничего не менять.
+   */
+  configuredFileIds?: ReadonlySet<string>;
 };
 
 function getPrintSidesLabel(
@@ -66,15 +75,25 @@ function getPrintSidesLabel(
     : "Односторонняя";
 }
 
-function getFileSettingsSummary(item: OrderFileListItem) {
+function getFileSettingsSummary(
+  item: OrderFileListItem,
+  photoFormatLabel?: string
+) {
   const settings = item.printSettings ?? DEFAULT_PRINT_SETTINGS;
 
   /*
-   * Защита не только интерфейса, но и отображения:
-   * изображения всегда показываем как односторонние.
+   * У фотопечати нет формата A4/A3 в документном смысле и нет сторон:
+   * показываем формат фотобумаги и количество отпечатков.
    */
-  const printSides =
-    item.kind === "image" ? "one-sided" : settings.printSides;
+  if (item.kind === "image") {
+    const prints = settings.copies;
+    const word = prints === 1 ? "отпечаток" : prints < 5 ? "отпечатка" : "отпечатков";
+
+    return `${photoFormatLabel ?? "10×15"} · ${prints} ${word}`;
+  }
+
+  /* Изображения отсеяны выше, поэтому здесь остаются только документы. */
+  const printSides = settings.printSides;
 
   const excluded = getExcludedPages(settings);
   const printable = getPrintablePageCount(item.pageCount ?? 0, settings);
@@ -91,6 +110,8 @@ export function OrderFileList({
   prices,
   onCollapse,
   renderSettings,
+  getPhotoFormatLabel,
+  configuredFileIds,
 }: OrderFileListProps) {
   if (items.length === 0) {
     return null;
@@ -114,6 +135,7 @@ export function OrderFileList({
         const isAnalyzing = item.status === "analyzing";
         const filePrice = prices?.[item.id];
         const isSettingsOpen = isSelected && isReady && Boolean(renderSettings);
+        const isConfigured = configuredFileIds?.has(item.id) ?? false;
 
         return (
           <li
@@ -170,10 +192,17 @@ export function OrderFileList({
                     {item.file.name}
                   </p>
 
-                  {isReady && (
+                  {isReady && isConfigured && (
                     <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700">
                       <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
                       Настроено
+                    </span>
+                  )}
+
+                  {isReady && !isConfigured && (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500">
+                      <span className="h-2 w-2 rounded-full bg-slate-300" aria-hidden="true" />
+                      Ожидает настройки
                     </span>
                   )}
 
@@ -204,7 +233,7 @@ export function OrderFileList({
                 </p>
 
                 {isReady && (
-                  <p className="mt-1 text-sm text-slate-700">{getFileSettingsSummary(item)}</p>
+                  <p className="mt-1 text-sm text-slate-700">{getFileSettingsSummary(item, getPhotoFormatLabel?.(item))}</p>
                 )}
 
                 {item.error && (

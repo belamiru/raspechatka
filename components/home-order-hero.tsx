@@ -11,7 +11,15 @@ import {
 } from "@/lib/client-file-analysis";
 import { reachMetrikaGoal } from "@/lib/metrika";
 import { setPendingOrderFiles } from "@/lib/pending-order-files";
-import { getPhotoPriceForCount, getPrintPriceForPages, type PaperFormat, type PrintColorMode, type PrintSides } from "@/lib/pricing";
+import {
+  getPhotoPriceForCount,
+  getPrintPriceForPages,
+  PHOTO_FORMATS,
+  type PaperFormat,
+  type PhotoFormat,
+  type PrintColorMode,
+  type PrintSides,
+} from "@/lib/pricing";
 
 const TELEGRAM_URL = "https://t.me/belami_ru";
 const MAX_URL = "https://max.ru/u/f9LHodD0cOJSiXthYzqOB1UCkuCYaObsZoaN6c_SgReZfE2QVGWuwChkOlE";
@@ -89,6 +97,7 @@ export function HomeOrderHero() {
   const [paper, setPaper] = useState<string>("80");
   /* Как вписать снимок в фотобумагу: заполнить кадр или оставить белые поля. */
   const [photoFit, setPhotoFit] = useState<"crop" | "contain">("crop");
+  const [photoFormat, setPhotoFormat] = useState<PhotoFormat>("10x15");
   const [isDragging, setIsDragging] = useState(false);
 
   /* Согласия: те же три галочки, что были в прежней форме заказа. */
@@ -121,7 +130,7 @@ export function HomeOrderHero() {
   const totalPrice = !isReady
     ? 0
     : isImage
-      ? getPhotoPriceForCount(copies).totalPrice
+      ? getPhotoPriceForCount(copies, photoFormat).totalPrice
       : getPrintPriceForPages({
           pageOptions: Array.from({ length: pageCount }, () => ({ paperFormat: effectivePaperFormat, colorMode })),
           printSides,
@@ -467,6 +476,31 @@ export function HomeOrderHero() {
               {isPhotoMode ? (
                 <>
                   <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Формат фотобумаги</p>
+                    <div className="mt-1.5 grid grid-cols-4 gap-1 rounded-xl bg-slate-100 p-1">
+                      {PHOTO_FORMATS.map((format) => {
+                        const isSelected = photoFormat === format.id;
+                        return (
+                          <button
+                            key={format.id}
+                            type="button"
+                            aria-pressed={isSelected}
+                            onClick={() => setPhotoFormat(format.id)}
+                            className={`rounded-lg px-2 py-2 text-sm font-bold transition ${
+                              isSelected ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200" : "text-slate-600 hover:text-slate-900"
+                            }`}
+                          >
+                            {format.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-1.5 text-xs leading-5 text-slate-500">
+                      Матовая или глянцевая — цена одинаковая.
+                    </p>
+                  </div>
+
+                  <div>
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Кадр</p>
                     <div className="mt-1.5 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
                       {([
@@ -697,7 +731,7 @@ export function HomeOrderHero() {
                     </button>
                     <Link href="/order" onClick={() => {
                       if (uploaded && uploaded.status === "ready" && uploaded.pages) {
-                        setPendingOrderFiles([{ id: makeFileId(), file: uploaded.file, kind: uploaded.kind, pageCount: uploaded.pages, draftId: uploaded.draftId, previewUrl: null, printSettings: { copies, printSides: uploaded.kind === "image" ? "one-sided" : printSides, defaults: { paperFormat: effectivePaperFormat, colorMode }, pageOverrides: {} } }]);
+                        setPendingOrderFiles([{ id: makeFileId(), file: uploaded.file, kind: uploaded.kind, pageCount: uploaded.pages, draftId: uploaded.draftId, previewUrl: null, printSettings: { copies, printSides: uploaded.kind === "image" ? "one-sided" : printSides, defaults: { paperFormat: effectivePaperFormat, colorMode }, pageOverrides: {} }, printExtras: { photoFormat, photoFit } }]);
                       } else setPendingOrderFiles([]);
                     }} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
                       Настроить доп. опции
