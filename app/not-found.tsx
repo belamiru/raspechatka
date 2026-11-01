@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteFooter } from "@/components/site-footer";
+import { BrandLogo } from "@/components/brand-logo";
 
 export const metadata: Metadata = {
   title: "Страница не найдена",
@@ -17,11 +18,8 @@ export default function NotFound() {
     <main className="flex min-h-screen flex-col bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
-          <Link
-            href="/"
-            className="text-xl font-black tracking-tight text-blue-700"
-          >
-            НАЧАТЬ-ПЕЧАТЬ.РФ
+          <Link href="/">
+            <BrandLogo size="page" />
           </Link>
 
           <Link

@@ -1,15 +1,13 @@
 import Link from "next/link";
+import { BrandLogo } from "@/components/brand-logo";
 
 export function SiteFooter() {
   return (
     <footer className="border-t border-slate-200 bg-white">
       <div className="mx-auto grid max-w-6xl gap-8 px-5 py-10 sm:grid-cols-2 lg:grid-cols-4">
         <div>
-          <Link
-            href="/"
-            className="text-lg font-black tracking-tight text-blue-700"
-          >
-            НАЧАТЬ-ПЕЧАТЬ.РФ
+          <Link href="/">
+            <BrandLogo size="footer" />
           </Link>
 
           <p className="mt-3 text-sm leading-6 text-slate-600">

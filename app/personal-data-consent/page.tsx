@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { SiteFooter } from "@/components/site-footer";
+import { BrandLogo } from "@/components/brand-logo";
 
 export const metadata: Metadata = {
   title: "Согласие на обработку персональных данных",
@@ -10,11 +11,8 @@ export default function PersonalDataConsentPage() {
     <main className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
-          <a
-            href="/"
-            className="text-xl font-black tracking-tight text-blue-700"
-          >
-            НАЧАТЬ-ПЕЧАТЬ.РФ
+          <a href="/">
+            <BrandLogo size="page" />
           </a>
 
           <a
