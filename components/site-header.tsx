@@ -117,8 +117,16 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-5">
-        <a href="/" className="shrink-0 text-lg font-black tracking-tight text-blue-700 sm:text-xl">
-          РАСПЕЧАТКА
+        {/*
+          Название длиннее прежнего на 60%: на телефоне рядом с ним ещё кнопка
+          загрузки и бургер. Поэтому на узких экранах шрифт мельче, а с sm —
+          прежний размер. whitespace-nowrap не даёт ломаться на две строки.
+        */}
+        <a
+          href="/"
+          className="shrink-0 whitespace-nowrap text-[13px] font-black tracking-tight text-blue-700 sm:text-lg lg:text-xl"
+        >
+          НАЧАТЬ-ПЕЧАТЬ.РФ
         </a>
 
         <nav className="hidden items-center gap-1 lg:flex" aria-label="Основное меню">

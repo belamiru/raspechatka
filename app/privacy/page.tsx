@@ -12,7 +12,7 @@ export default function PrivacyPage() {
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
           <a href="/" className="text-xl font-black tracking-tight text-blue-700">
-            РАСПЕЧАТКА
+            НАЧАТЬ-ПЕЧАТЬ.РФ
           </a>
 
           <a

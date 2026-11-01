@@ -14,7 +14,7 @@ export default function OfferPage() {
             href="/"
             className="text-xl font-black tracking-tight text-blue-700"
           >
-            РАСПЕЧАТКА
+            НАЧАТЬ-ПЕЧАТЬ.РФ
           </a>
 
           <a

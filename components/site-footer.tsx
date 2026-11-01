@@ -9,7 +9,7 @@ export function SiteFooter() {
             href="/"
             className="text-lg font-black tracking-tight text-blue-700"
           >
-            РАСПЕЧАТКА
+            НАЧАТЬ-ПЕЧАТЬ.РФ
           </Link>
 
           <p className="mt-3 text-sm leading-6 text-slate-600">

@@ -21,7 +21,7 @@ export default function NotFound() {
             href="/"
             className="text-xl font-black tracking-tight text-blue-700"
           >
-            РАСПЕЧАТКА
+            НАЧАТЬ-ПЕЧАТЬ.РФ
           </Link>
 
           <Link
