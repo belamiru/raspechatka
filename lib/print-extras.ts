@@ -1,7 +1,11 @@
-import type {
-  PaperFormat,
+import {
+  getPosterPaper,
+  getPosterPrice,
+  type PaperFormat,
   PagePrintOption,
   PhotoFormat,
+  PosterFormat,
+  PosterPaperId,
   PrintSides,
 } from "@/lib/pricing";
 
@@ -28,6 +32,7 @@ export type CoverSet = "none" | "front" | "back" | "both";
 export type PhotoFit = "crop" | "contain";
 
 export type { PhotoFormat } from "@/lib/pricing";
+export type { PosterFormat, PosterPaperId } from "@/lib/pricing";
 export type StapleSide = "none" | "left" | "right";
 
 export type PrintExtraOptions = {
@@ -43,6 +48,12 @@ export type PrintExtraOptions = {
   photoFit: PhotoFit;
   /* Формат фотобумаги: 10×15, A5, A4 или A3. Тоже только для фотопечати. */
   photoFormat: PhotoFormat;
+
+  /* Плакаты: материал, формат и размер в миллиметрах. Только для широкого формата. */
+  posterPaper: PosterPaperId;
+  posterFormat: PosterFormat;
+  posterWidthMm: number;
+  posterHeightMm: number;
 };
 
 export const DEFAULT_PRINT_EXTRA_OPTIONS: PrintExtraOptions = {
@@ -56,6 +67,10 @@ export const DEFAULT_PRINT_EXTRA_OPTIONS: PrintExtraOptions = {
   staple: "none",
   photoFit: "crop",
   photoFormat: "10x15",
+  posterPaper: "lokipix-135",
+  posterFormat: "A2",
+  posterWidthMm: 420,
+  posterHeightMm: 594,
 };
 
 /* Цена ламинации за лист, руб. Зависит от формата листа и плотности плёнки. */
@@ -193,6 +208,32 @@ export function getExtrasPrice({
     staple,
     total: paperSurcharge + lamination + binding + covers + staple,
   };
+}
+
+/*
+ * Стоимость плаката считается по площади и материалу. Это не «доп. опция»,
+ * а сама цена печати, поэтому отдельная функция: клиент и сервер должны
+ * получать одинаковую сумму.
+ */
+export function getPosterExtrasPrice({
+  posterPaper,
+  posterFormat,
+  posterWidthMm,
+  posterHeightMm,
+  copies,
+}: {
+  posterPaper: PosterPaperId;
+  posterFormat: PosterFormat;
+  posterWidthMm: number;
+  posterHeightMm: number;
+  copies: number;
+}) {
+  return getPosterPrice({
+    widthMm: posterWidthMm,
+    heightMm: posterHeightMm,
+    pricePerSqm: getPosterPaper(posterPaper).pricePerSqm,
+    copies,
+  });
 }
 
 /** Короткая подпись опций для карточки файла и админки. */

@@ -2,7 +2,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import { COLOR_PRICE_TIERS, PHOTO_FORMATS, PHOTO_PRICE_TIERS, PRINT_PRICE_TIERS, getPhotoPriceForCount } from "@/lib/pricing";
+import {
+  COLOR_PRICE_TIERS,
+  PHOTO_FORMATS,
+  PHOTO_PRICE_TIERS,
+  POSTER_FORMATS,
+  POSTER_PAPERS,
+  PRINT_PRICE_TIERS,
+  getPhotoPriceForCount,
+  getPosterPrice,
+  getRequiredPixels,
+} from "@/lib/pricing";
 import {
   BINDING_PRICE,
   COVER_PRICE,
@@ -231,6 +241,49 @@ export default function PricesPage() {
             cells: [format.label, format.multiplier === 1 ? "базовый" : `×${String(format.multiplier).replace(".", ",")}`],
             note: format.note === "A6" ? "A6 — самый маленький формат" : undefined,
           }))}
+        />
+
+        <PriceTable
+          title="Плакаты и чертежи"
+          description="Широкоформатная печать считается по площади листа. Цена за м² зависит от материала, а итог — от размера: A2 примерно 0,25 м², A1 — 0,5 м², A0 — 1 м²."
+          columns={["Материал", "Цена за м²", "Макс. ширина"]}
+          rows={POSTER_PAPERS.map((paper) => ({
+            cells: [paper.label, `${paper.pricePerSqm} ₽`, `${paper.maxWidthMm} мм`],
+            note: `${paper.group} · ${paper.note}`,
+          }))}
+        />
+
+        <PriceTable
+          title="Плакаты по форматам"
+          description="Примерная стоимость одного отпечатка. Точную цену показывает калькулятор: она зависит от выбранного материала и размера."
+          columns={["Формат", ...POSTER_PAPERS.map((paper) => paper.label.replace(/ \d+ г\/м²| \d+ мкр/, ""))]}
+          rows={POSTER_FORMATS.filter((format) => format.id !== "custom").map((format) => ({
+            cells: [
+              format.label,
+              ...POSTER_PAPERS.map(
+                (paper) =>
+                  `${getPosterPrice({
+                    widthMm: format.widthMm,
+                    heightMm: format.heightMm,
+                    pricePerSqm: paper.pricePerSqm,
+                  }).unitPrice} ₽`
+              ),
+            ],
+            note: `${format.widthMm}×${format.heightMm} мм`,
+          }))}
+        />
+
+        <PriceTable
+          title="Разрешение для больших форматов"
+          description="Для широкоформатной печати нужно не меньше 150 пикселей на дюйм. Если файл меньше, изображение напечатается мутным или пикселизованным."
+          columns={["Формат", "Минимальный размер файла"]}
+          rows={POSTER_FORMATS.filter((format) => format.id !== "custom").map((format) => {
+            const px = getRequiredPixels(format.widthMm, format.heightMm);
+            return {
+              cells: [format.label, `${px.width}×${px.height} px`],
+              note: `${format.widthMm}×${format.heightMm} мм при 150 dpi`,
+            };
+          })}
         />
 
         <PriceTable

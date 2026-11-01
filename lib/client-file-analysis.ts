@@ -82,6 +82,28 @@ export function validateClientFile(file: File) {
   };
 }
 
+/*
+ * Размеры снимка в пикселях. Нужны для предупреждения о разрешении при
+ * широкоформатной печати: маленький файл на большом листе выглядит мутно.
+ * Читаем локально, без отправки на сервер.
+ */
+export async function readImagePixels(
+  file: File
+): Promise<{ width: number; height: number } | null> {
+  try {
+    if (typeof createImageBitmap === "function") {
+      const bitmap = await createImageBitmap(file);
+      const size = { width: bitmap.width, height: bitmap.height };
+      bitmap.close();
+      return size;
+    }
+  } catch {
+    /* Падение здесь не должно мешать загрузке: просто не покажем подсказку. */
+  }
+
+  return null;
+}
+
 export function formatFileSize(bytes: number) {
   if (bytes < 1024) {
     return `${bytes} Б`;

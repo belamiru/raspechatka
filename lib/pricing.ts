@@ -79,6 +79,155 @@ export function getPhotoPriceForCount(
 }
 export type PrintSides = "one-sided" | "two-sided";
 
+/*
+ * Широкоформатная печать считается по площади, а не по страницам: цена
+ * зависит от материала и размера листа. Рулон ограничивает только ширину —
+ * длина может быть любой, поэтому достаточно, чтобы одна сторона
+ * укладывалась в лимит материала.
+ */
+
+export type PosterPaperId = "vatman-120" | "lokipix-135" | "lokipix-200" | "pvc-80";
+
+export type PosterPaper = {
+  id: PosterPaperId;
+  label: string;
+  /* Группа в интерфейсе: бумага без покрытия, постерная, плёнка. */
+  group: string;
+  note: string;
+  pricePerSqm: number;
+  /* Максимальная ширина рулона в миллиметрах. */
+  maxWidthMm: number;
+};
+
+export const POSTER_PAPERS: PosterPaper[] = [
+  {
+    id: "vatman-120",
+    label: "Ватман 120 г/м²",
+    group: "Бумага без покрытия",
+    note: "Матовая, для чертежей",
+    pricePerSqm: 750,
+    maxWidthMm: 914,
+  },
+  {
+    id: "lokipix-135",
+    label: "Lokipix 135 г/м²",
+    group: "Постерная бумага",
+    note: "Глянцевая, для постеров",
+    pricePerSqm: 780,
+    maxWidthMm: 1200,
+  },
+  {
+    id: "lokipix-200",
+    label: "Lokipix 200 г/м²",
+    group: "Постерная бумага",
+    note: "Плотная, не просвечивает",
+    pricePerSqm: 820,
+    maxWidthMm: 1200,
+  },
+  {
+    id: "pvc-80",
+    label: "ПВХ 80 мкр",
+    group: "Самоклеящаяся плёнка",
+    note: "Клеится на поверхность",
+    pricePerSqm: 790,
+    maxWidthMm: 1200,
+  },
+];
+
+export const DEFAULT_POSTER_PAPER: PosterPaperId = "lokipix-135";
+
+export function getPosterPaper(id: PosterPaperId) {
+  return POSTER_PAPERS.find((item) => item.id === id) ?? POSTER_PAPERS[0];
+}
+
+export type PosterFormat = "A2" | "A1" | "A0" | "custom";
+
+/* Стандартные форматы в миллиметрах, книжная ориентация. */
+export const POSTER_FORMATS: { id: PosterFormat; label: string; note: string; widthMm: number; heightMm: number }[] = [
+  { id: "A2", label: "A2", note: "420×594", widthMm: 420, heightMm: 594 },
+  { id: "A1", label: "A1", note: "594×841", widthMm: 594, heightMm: 841 },
+  { id: "A0", label: "A0", note: "841×1189", widthMm: 841, heightMm: 1189 },
+  { id: "custom", label: "Свой размер", note: "Ш × В, мм", widthMm: 0, heightMm: 0 },
+];
+
+export function getPosterFormat(id: PosterFormat) {
+  return POSTER_FORMATS.find((item) => item.id === id) ?? POSTER_FORMATS[0];
+}
+
+/* Минимальное разрешение для широкоформатной печати. */
+export const POSTER_MIN_DPI = 150;
+
+/* Минимальная сторона собственного размера: мельче печатать смысла нет. */
+export const POSTER_MIN_SIDE_MM = 100;
+
+/** Сколько пикселей нужно, чтобы отпечатать отрезок в `mm` миллиметров без потери резкости. */
+export function mmToPixels(mm: number, dpi: number = POSTER_MIN_DPI) {
+  return Math.ceil((mm / 25.4) * dpi);
+}
+
+/** Требуемый размер файла в пикселях для листа заданного размера. */
+export function getRequiredPixels(widthMm: number, heightMm: number) {
+  return {
+    width: mmToPixels(widthMm),
+    height: mmToPixels(heightMm),
+  };
+}
+
+/** Проверка размера: хотя бы одна сторона должна укладываться в ширину рулона. */
+export function validatePosterSize({
+  widthMm,
+  heightMm,
+  maxWidthMm,
+}: {
+  widthMm: number;
+  heightMm: number;
+} & { maxWidthMm: number }):
+  | { valid: true }
+  | { valid: false; error: string } {
+  if (!Number.isFinite(widthMm) || !Number.isFinite(heightMm) || widthMm <= 0 || heightMm <= 0) {
+    return { valid: false, error: "Укажите ширину и высоту в миллиметрах." };
+  }
+
+  if (widthMm < POSTER_MIN_SIDE_MM || heightMm < POSTER_MIN_SIDE_MM) {
+    return { valid: false, error: `Минимальный размер — ${POSTER_MIN_SIDE_MM} мм по каждой стороне.` };
+  }
+
+  if (Math.min(widthMm, heightMm) > maxWidthMm) {
+    return {
+      valid: false,
+      error: `Хотя бы одна сторона должна быть не больше ${maxWidthMm} мм — это ширина рулона.`,
+    };
+  }
+
+  return { valid: true };
+}
+
+/** Стоимость широкоформатной печати: площадь × цена материала × копии. */
+export function getPosterPrice({
+  widthMm,
+  heightMm,
+  pricePerSqm,
+  copies = 1,
+}: {
+  widthMm: number;
+  heightMm: number;
+  pricePerSqm: number;
+  copies?: number;
+}) {
+  const validCopies = Math.max(1, copies);
+  const areaSqm = (widthMm / 1000) * (heightMm / 1000);
+
+  /* Округляем вверх до рубля: сумма в чеке должна быть целой. */
+  const unitPrice = Math.ceil(areaSqm * pricePerSqm);
+
+  return {
+    areaSqm,
+    unitPrice,
+    copies: validCopies,
+    totalPrice: unitPrice * validCopies,
+  };
+}
+
 export type PriceTier = {
   from: number;
   to: number | null;

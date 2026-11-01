@@ -28,6 +28,10 @@ export type PendingOrderFile = {
   printExtras?: {
     photoFormat: "10x15" | "A5" | "A4" | "A3";
     photoFit: "crop" | "contain";
+    posterPaper: "vatman-120" | "lokipix-135" | "lokipix-200" | "pvc-80";
+    posterFormat: "A2" | "A1" | "A0" | "custom";
+    posterWidthMm: number;
+    posterHeightMm: number;
   };
 };
 

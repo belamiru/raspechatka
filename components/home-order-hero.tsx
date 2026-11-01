@@ -13,10 +13,17 @@ import { reachMetrikaGoal } from "@/lib/metrika";
 import { setPendingOrderFiles } from "@/lib/pending-order-files";
 import {
   getPhotoPriceForCount,
+  getPosterPaper,
+  getPosterPrice,
   getPrintPriceForPages,
+  getRequiredPixels,
+  POSTER_FORMATS,
+  POSTER_PAPERS,
   PHOTO_FORMATS,
   type PaperFormat,
   type PhotoFormat,
+  type PosterFormat,
+  type PosterPaperId,
   type PrintColorMode,
   type PrintSides,
 } from "@/lib/pricing";
@@ -31,7 +38,7 @@ const MAX_URL = "https://max.ru/u/f9LHodD0cOJSiXthYzqOB1UCkuCYaObsZoaN6c_SgReZfE
 const CATEGORY_TABS = [
   { id: "documents", label: "Документы", available: true },
   { id: "photo", label: "Фото", available: true },
-  { id: "large-format", label: "Плакаты и чертежи", available: false },
+  { id: "large-format", label: "Плакаты и чертежи", available: true },
 ] as const;
 
 type CategoryId = (typeof CATEGORY_TABS)[number]["id"];
@@ -98,6 +105,10 @@ export function HomeOrderHero() {
   /* Как вписать снимок в фотобумагу: заполнить кадр или оставить белые поля. */
   const [photoFit, setPhotoFit] = useState<"crop" | "contain">("crop");
   const [photoFormat, setPhotoFormat] = useState<PhotoFormat>("10x15");
+  const [posterPaper, setPosterPaper] = useState<PosterPaperId>("lokipix-135");
+  const [posterFormat, setPosterFormat] = useState<PosterFormat>("A2");
+  const [posterWidthMm, setPosterWidthMm] = useState(420);
+  const [posterHeightMm, setPosterHeightMm] = useState(594);
   const [isDragging, setIsDragging] = useState(false);
 
   /* Согласия: те же три галочки, что были в прежней форме заказа. */
@@ -119,6 +130,7 @@ export function HomeOrderHero() {
    * фотопечати 10×15, на «Документах» — формат A4/A3 и стороны.
    */
   const isPhotoMode = category === "photo";
+  const isPosterMode = category === "large-format";
 
   /*
    * Для изображений формат фиксирован на A4, поэтому и цена, и то, что уходит
@@ -129,7 +141,14 @@ export function HomeOrderHero() {
   /* Фотографии считаются по числу отпечатков 10×15, а не по страницам A4. */
   const totalPrice = !isReady
     ? 0
-    : isImage
+    : isPosterMode
+      ? getPosterPrice({
+          widthMm: posterWidthMm,
+          heightMm: posterHeightMm,
+          pricePerSqm: getPosterPaper(posterPaper).pricePerSqm,
+          copies,
+        }).totalPrice
+      : isImage
       ? getPhotoPriceForCount(copies, photoFormat).totalPrice
       : getPrintPriceForPages({
           pageOptions: Array.from({ length: pageCount }, () => ({ paperFormat: effectivePaperFormat, colorMode })),
@@ -473,7 +492,97 @@ export function HomeOrderHero() {
                 </div>
               )}
 
-              {isPhotoMode ? (
+              {isPosterMode ? (
+                <>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Материал</p>
+                    <select
+                      id="hero-poster-paper"
+                      value={posterPaper}
+                      onChange={(event) => setPosterPaper(event.target.value as PosterPaperId)}
+                      className={controlClass}
+                    >
+                      {POSTER_PAPERS.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.label} — {item.pricePerSqm} ₽/м², до {item.maxWidthMm} мм
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Размер</p>
+                    <div className="mt-1.5 grid grid-cols-4 gap-1 rounded-xl bg-slate-100 p-1">
+                      {POSTER_FORMATS.map((format) => {
+                        const isSelected = posterFormat === format.id;
+                        return (
+                          <button
+                            key={format.id}
+                            type="button"
+                            aria-pressed={isSelected}
+                            onClick={() => {
+                              setPosterFormat(format.id);
+                              if (format.id !== "custom") {
+                                setPosterWidthMm(format.widthMm);
+                                setPosterHeightMm(format.heightMm);
+                              }
+                            }}
+                            className={`rounded-lg px-1 py-2 text-xs font-bold transition ${
+                              isSelected ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200" : "text-slate-600 hover:text-slate-900"
+                            }`}
+                          >
+                            {format.id === "custom" ? "Свой" : format.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {posterFormat === "custom" && (
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <label className="block text-xs font-semibold text-slate-700">
+                          Ширина, мм
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min={100}
+                            value={posterWidthMm || ""}
+                            onChange={(event) => setPosterWidthMm(Number(event.target.value))}
+                            className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold outline-none focus:border-blue-500"
+                          />
+                        </label>
+                        <label className="block text-xs font-semibold text-slate-700">
+                          Высота, мм
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min={100}
+                            value={posterHeightMm || ""}
+                            onChange={(event) => setPosterHeightMm(Number(event.target.value))}
+                            className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold outline-none focus:border-blue-500"
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    <p className="mt-1.5 text-xs leading-5 text-slate-500">
+                      Нужно не меньше 150 dpi. Минимальный размер файла:{" "}
+                      <span className="font-bold text-slate-700">
+                        {getRequiredPixels(posterWidthMm, posterHeightMm).width}×
+                        {getRequiredPixels(posterWidthMm, posterHeightMm).height} px
+                      </span>
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Количество</p>
+                    <div className="mt-1.5 flex items-center overflow-hidden rounded-xl border border-slate-300 bg-white">
+                      <button type="button" onClick={() => setCopies((current) => Math.max(1, current - 1))} disabled={copies <= 1} className="flex h-10 w-10 items-center justify-center border-r border-slate-300 text-lg font-bold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-300" aria-label="Уменьшить количество">−</button>
+                      <input type="text" inputMode="numeric" pattern="[0-9]*" value={copies} onChange={(event) => { const digits = event.target.value.replace(/\D/g, ""); if (digits === "") return; const next = Number(digits); if (next >= 1 && next <= 1000) setCopies(next); }} className="h-10 min-w-0 flex-1 bg-white text-center text-base font-bold text-slate-900 outline-none focus:bg-blue-50" aria-label="Количество" />
+                      <button type="button" onClick={() => setCopies((current) => Math.min(1000, current + 1))} className="flex h-10 w-10 items-center justify-center border-l border-slate-300 text-lg font-bold text-slate-700 transition hover:bg-slate-100" aria-label="Увеличить количество">+</button>
+                    </div>
+                  </div>
+                </>
+              ) : isPhotoMode ? (
                 <>
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Формат фотобумаги</p>
@@ -731,7 +840,7 @@ export function HomeOrderHero() {
                     </button>
                     <Link href="/order" onClick={() => {
                       if (uploaded && uploaded.status === "ready" && uploaded.pages) {
-                        setPendingOrderFiles([{ id: makeFileId(), file: uploaded.file, kind: uploaded.kind, pageCount: uploaded.pages, draftId: uploaded.draftId, previewUrl: null, printSettings: { copies, printSides: uploaded.kind === "image" ? "one-sided" : printSides, defaults: { paperFormat: effectivePaperFormat, colorMode }, pageOverrides: {} }, printExtras: { photoFormat, photoFit } }]);
+                        setPendingOrderFiles([{ id: makeFileId(), file: uploaded.file, kind: uploaded.kind, pageCount: uploaded.pages, draftId: uploaded.draftId, previewUrl: null, printSettings: { copies, printSides: uploaded.kind === "image" ? "one-sided" : printSides, defaults: { paperFormat: effectivePaperFormat, colorMode }, pageOverrides: {} }, printExtras: { photoFormat, photoFit, posterPaper, posterFormat, posterWidthMm, posterHeightMm } }]);
                       } else setPendingOrderFiles([]);
                     }} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
                       Настроить доп. опции

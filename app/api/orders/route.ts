@@ -4,13 +4,21 @@ import { NextResponse } from "next/server";
 import { validateSupportedFile, type FileKind } from "@/lib/converter";
 import { getDb } from "@/lib/db";
 import { uploadOrderFile } from "@/lib/yandex-disk";
-import { getPhotoPriceForCount, getPrintPriceForPages } from "@/lib/pricing";
+import {
+  getPhotoPriceForCount,
+  getPosterPaper,
+  getPosterPrice,
+  getPrintPriceForPages,
+  validatePosterSize,
+} from "@/lib/pricing";
 import {
   DEFAULT_PRINT_EXTRA_OPTIONS,
   getExtrasPrice,
   type CoverSet,
   type PhotoFit,
   type PhotoFormat,
+  type PosterFormat,
+  type PosterPaperId,
   type PrintExtraOptions,
 } from "@/lib/print-extras";
 import { calculateOrderParcel } from "@/lib/order-parcel";
@@ -56,6 +64,8 @@ type SubmittedFileSettings = {
   printSides: "one-sided" | "two-sided";
   pageOverrides: Record<number, PagePrintOverride>;
   extras: PrintExtraOptions;
+  /* Тип печати файла: от него зависит формула цены. */
+  printKind: "document" | "photo" | "poster";
 };
 
 let schemaReady: Promise<void> | null = null;
@@ -216,6 +226,27 @@ function parseExtras(rawValue: unknown): PrintExtraOptions | null {
 
   const normalizedPhotoFit: PhotoFit = photoFit === "contain" ? "contain" : "crop";
 
+  /*
+   * Плакат: материал из списка, формат и размер в разумных пределах.
+   * Размер проверяется отдельно — здесь только грубая защита от мусора.
+   */
+  const posterPaper = value.posterPaper;
+  const posterFormat = value.posterFormat;
+  const posterWidthMm = Number(value.posterWidthMm);
+  const posterHeightMm = Number(value.posterHeightMm);
+
+  const normalizedPosterPaper: PosterPaperId = (
+    ["vatman-120", "lokipix-135", "lokipix-200", "pvc-80"] as PosterPaperId[]
+  ).includes(posterPaper as PosterPaperId)
+    ? (posterPaper as PosterPaperId)
+    : "lokipix-135";
+
+  const normalizedPosterFormat: PosterFormat = (
+    ["A2", "A1", "A0", "custom"] as PosterFormat[]
+  ).includes(posterFormat as PosterFormat)
+    ? (posterFormat as PosterFormat)
+    : "A2";
+
   const normalizedPhotoFormat: PhotoFormat =
     photoFormat === "A5" || photoFormat === "A4" || photoFormat === "A3" || photoFormat === "10x15"
       ? photoFormat
@@ -232,6 +263,16 @@ function parseExtras(rawValue: unknown): PrintExtraOptions | null {
     staple,
     photoFit: normalizedPhotoFit,
     photoFormat: normalizedPhotoFormat,
+    posterPaper: normalizedPosterPaper,
+    posterFormat: normalizedPosterFormat,
+    posterWidthMm:
+      Number.isFinite(posterWidthMm) && posterWidthMm >= 100
+        ? Math.min(10_000, Math.round(posterWidthMm))
+        : 420,
+    posterHeightMm:
+      Number.isFinite(posterHeightMm) && posterHeightMm >= 100
+        ? Math.min(20_000, Math.round(posterHeightMm))
+        : 594,
   };
 }
 
@@ -336,6 +377,12 @@ function parseFileSettings(
       };
     }
 
+    const rawPrintKind = value.printKind;
+    const printKind =
+      rawPrintKind === "photo" || rawPrintKind === "poster" || rawPrintKind === "document"
+        ? rawPrintKind
+        : "document";
+
     const parsedExtras = parseExtras(value.extras);
 
     if (!parsedExtras) {
@@ -352,6 +399,7 @@ function parseFileSettings(
       printSides,
       pageOverrides,
       extras: parsedExtras,
+      printKind,
     });
   }
 
@@ -581,6 +629,28 @@ export async function POST(request: Request) {
       preparedItems.push({ kind: "document", draft, pageCount: draft.pageCount, settings });
     }
 
+    /*
+     * Размер плаката проверяем до расчёта: рулон ограничивает ширину,
+     * и заказ с листом вне лимита принимать нельзя.
+     */
+    for (const item of preparedItems) {
+      if (item.settings.printKind !== "poster") continue;
+
+      const paper = getPosterPaper(item.settings.extras.posterPaper);
+      const validation = validatePosterSize({
+        widthMm: item.settings.extras.posterWidthMm,
+        heightMm: item.settings.extras.posterHeightMm,
+        maxWidthMm: paper.maxWidthMm,
+      });
+
+      if (!validation.valid) {
+        return NextResponse.json(
+          { error: `${validation.error} Материал: ${paper.label}.`, requestId },
+          { status: 400 }
+        );
+      }
+    }
+
     const pricedItems = preparedItems.map((item) => {
       const pageOptions = item.kind === "document"
         ? getPrintablePageOptions(item.pageCount, { copies: item.settings.copies, printSides: item.settings.printSides, defaults: { paperFormat: item.settings.paperFormat, colorMode: item.settings.colorMode }, pageOverrides: item.settings.pageOverrides })
@@ -590,6 +660,46 @@ export async function POST(request: Request) {
        * Фотографии считаются по прайсу фотопечати 10×15 — за отпечаток,
        * а не за страницу A4. Логика должна совпадать с браузером.
        */
+      /*
+       * Плакат считается по площади и материалу — как в браузере. Проверяем
+       * размер теми же функциями, чтобы сервер не принял лист вне рулона.
+       */
+      if (item.settings.printKind === "poster") {
+        const posterSize = {
+          widthMm: item.settings.extras.posterWidthMm,
+          heightMm: item.settings.extras.posterHeightMm,
+        };
+        const paper = getPosterPaper(item.settings.extras.posterPaper);
+
+        const posterPricing = getPosterPrice({
+          ...posterSize,
+          pricePerSqm: paper.pricePerSqm,
+          copies: item.settings.copies,
+        });
+
+        return {
+          ...item,
+          pricing: {
+            ...getPrintPriceForPages({
+              pageOptions: pageOptions,
+              printSides: "one-sided",
+              copies: item.settings.copies,
+            }),
+            totalPrice: posterPricing.totalPrice,
+            quantity: posterPricing.copies,
+            physicalSheetQuantity: posterPricing.copies,
+            sheetsPerCopy: 1,
+          },
+          extrasPricing: getExtrasPrice({
+            extras: { ...item.settings.extras, paper: "80" },
+            pageOptions,
+            printSides: item.settings.printSides,
+            copies: item.settings.copies,
+            printPrice: posterPricing.totalPrice,
+          }),
+        };
+      }
+
       const pricing =
         item.kind === "image"
           ? (() => {

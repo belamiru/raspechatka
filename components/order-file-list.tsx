@@ -22,6 +22,8 @@ export type OrderFileListItem = {
   draftId?: string | null;
   previewUrl?: string | null;
   printSettings?: FilePrintSettings;
+  /* Размер снимка в пикселях — нужен для проверки разрешения при печати плаката. */
+  imagePixels?: { width: number; height: number } | null;
 };
 
 type OrderFileListProps = {
@@ -60,6 +62,9 @@ type OrderFileListProps = {
   /* Подпись формата фотобумаги для сводки в карточке фотографии. */
   getPhotoFormatLabel?: (item: OrderFileListItem) => string;
 
+  /* Подпись плаката: материал и размер. */
+  getPosterLabel?: (item: OrderFileListItem) => string | undefined;
+
   /*
    * Файлы, чьи опции уже открывали. Пока опции не открыты, честнее писать
    * «Ожидает настройки», а не «Настроено»: пользователь мог ничего не менять.
@@ -77,9 +82,15 @@ function getPrintSidesLabel(
 
 function getFileSettingsSummary(
   item: OrderFileListItem,
-  photoFormatLabel?: string
+  photoFormatLabel?: string,
+  posterLabel?: string
 ) {
   const settings = item.printSettings ?? DEFAULT_PRINT_SETTINGS;
+
+  /* Плакат: материал и размер, без копий и сторон. */
+  if (posterLabel) {
+    return posterLabel;
+  }
 
   /*
    * У фотопечати нет формата A4/A3 в документном смысле и нет сторон:
@@ -111,6 +122,7 @@ export function OrderFileList({
   onCollapse,
   renderSettings,
   getPhotoFormatLabel,
+  getPosterLabel,
   configuredFileIds,
 }: OrderFileListProps) {
   if (items.length === 0) {
@@ -233,7 +245,9 @@ export function OrderFileList({
                 </p>
 
                 {isReady && (
-                  <p className="mt-1 text-sm text-slate-700">{getFileSettingsSummary(item, getPhotoFormatLabel?.(item))}</p>
+                  <p className="mt-1 text-sm text-slate-700">
+                  {getFileSettingsSummary(item, getPhotoFormatLabel?.(item), getPosterLabel?.(item))}
+                </p>
                 )}
 
                 {item.error && (

@@ -17,6 +17,7 @@ import {
   analyzeClientFile,
   MAX_FILES_PER_ORDER,
   MAX_TOTAL_FILE_SIZE,
+  readImagePixels,
   validateClientFile,
 } from "@/lib/client-file-analysis";
 import { SiteFooter } from "@/components/site-footer";
@@ -32,9 +33,11 @@ import {
   type PrintExtraOptions,
   DEFAULT_PRINT_EXTRA_OPTIONS,
 } from "@/components/file-print-options";
-import { getExtrasPrice } from "@/lib/print-extras";
+import { getExtrasPrice, getPosterExtrasPrice } from "@/lib/print-extras";
+import { getPosterPaper, validatePosterSize } from "@/lib/pricing";
 import { FreeDeliveryProgress } from "@/components/free-delivery-progress";
 import { takePendingOrderFiles } from "@/lib/pending-order-files";
+import { PosterOptions } from "@/components/poster-options";
 
 
 function getFilesWord(count: number) {
@@ -134,6 +137,38 @@ export default function Home() {
          * Фотографии печатаются на фотобумаге 10×15 и считаются по числу
          * отпечатков, а не по страницам A4 — прайс у фотопечати свой.
          */
+        /*
+         * Плакаты считаются по площади и материалу — это не надбавка,
+         * а сама цена печати, поэтому она заменяет базовую.
+         */
+        const posterKind = printKinds[file.id] === "poster";
+
+        if (posterKind) {
+          const extras = printExtras[file.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS;
+          const posterPricing = getPosterExtrasPrice({
+            posterPaper: extras.posterPaper,
+            posterFormat: extras.posterFormat,
+            posterWidthMm: extras.posterWidthMm,
+            posterHeightMm: extras.posterHeightMm,
+            copies: settings.copies,
+          });
+
+          return {
+            file,
+            pricing: {
+              ...getPrintPriceForPages({
+                pageOptions: [{ paperFormat: settings.defaults.paperFormat, colorMode: settings.defaults.colorMode }],
+                printSides: "one-sided",
+                copies: settings.copies,
+              }),
+              totalPrice: posterPricing.totalPrice,
+              quantity: posterPricing.copies,
+              physicalSheetQuantity: posterPricing.copies,
+              sheetsPerCopy: 1,
+            },
+          };
+        }
+
         if (file.kind === "image") {
           const photoPricing = getPhotoPriceForCount(
             settings.copies,
@@ -165,7 +200,7 @@ export default function Home() {
           }),
         };
       }),
-    [readyFiles, printExtras]
+    [readyFiles, printExtras, printKinds]
   );
 
   /*
@@ -183,7 +218,7 @@ export default function Home() {
           price: getExtrasPrice({
             /* У фотобумаги своя цена за отпечаток, надбавка за плотность к ней не применяется. */
             extras:
-              file.kind === "image"
+              file.kind === "image" || printKinds[file.id] === "poster"
                 ? { ...(printExtras[file.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS), paper: "80" }
                 : printExtras[file.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS,
             pageOptions: file.kind === "document"
@@ -316,6 +351,13 @@ export default function Home() {
     try {
       const analysis = await analyzeClientFile(file);
 
+      /*
+       * Для снимков читаем размер в пикселях: на плакате маленький файл
+       * даёт меньше 150 dpi, и об этом нужно предупредить до оплаты.
+       */
+      const imagePixels =
+        analysis.kind === "image" ? await readImagePixels(file) : null;
+
       setFiles((currentFiles) =>
         currentFiles.map((currentFile) =>
           currentFile.id === id
@@ -327,6 +369,7 @@ export default function Home() {
                 error: null,
                 draftId: analysis.draftId,
                 previewUrl: analysis.previewUrl,
+                imagePixels,
               }
             : currentFile
         )
@@ -493,6 +536,10 @@ export default function Home() {
             ...DEFAULT_PRINT_EXTRA_OPTIONS,
             photoFormat: item.printExtras!.photoFormat,
             photoFit: item.printExtras!.photoFit,
+            posterPaper: item.printExtras!.posterPaper,
+            posterFormat: item.printExtras!.posterFormat,
+            posterWidthMm: item.printExtras!.posterWidthMm,
+            posterHeightMm: item.printExtras!.posterHeightMm,
           },
         ])
     ) as Record<string, PrintExtraOptions>;
@@ -517,6 +564,23 @@ export default function Home() {
     return () => { window.removeEventListener("storage", sync); window.removeEventListener("focus", sync); };
   }, []);
 
+  /*
+   * Плакат с размером вне рулона нельзя отправить: сервер его отклонит,
+   * но лучше сказать об этом до нажатия кнопки.
+   */
+  const invalidPosterFile = readyFiles.find((file) => {
+    if (printKinds[file.id] !== "poster") return false;
+
+    const extras = printExtras[file.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS;
+    const paper = getPosterPaper(extras.posterPaper);
+
+    return !validatePosterSize({
+      widthMm: extras.posterWidthMm,
+      heightMm: extras.posterHeightMm,
+      maxWidthMm: paper.maxWidthMm,
+    }).valid;
+  });
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -531,6 +595,13 @@ export default function Home() {
     if (isAnalyzingFiles) {
       setFormError(
         "Подождите: файлы ещё проверяются. Заказ можно оформить после завершения проверки."
+      );
+      return;
+    }
+
+    if (invalidPosterFile) {
+      setFormError(
+        "У плаката указан размер, который не помещается на рулон. Проверьте ширину и высоту."
       );
       return;
     }
@@ -715,6 +786,15 @@ export default function Home() {
               selectedFileId={selectedFileId}
               onSelectFile={openFileSettings}
               configuredFileIds={configuredFileIds}
+              getPosterLabel={(item) => {
+                if (printKinds[item.id] !== "poster") return undefined;
+
+                const extras = printExtras[item.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS;
+                const paper = getPosterPaper(extras.posterPaper);
+                const copies = item.printSettings?.copies ?? 1;
+
+                return `${paper.label} · ${extras.posterWidthMm}×${extras.posterHeightMm} мм${copies > 1 ? ` · ${copies} коп.` : ""}`;
+              }}
               getPhotoFormatLabel={(item) =>
                 PHOTO_FORMATS.find(
                   (format) =>
@@ -748,6 +828,17 @@ export default function Home() {
                       onPrintSettingsChange={changeFilePrintSettings}
                     />
 
+                    {printKind === "poster" ? (
+                      <PosterOptions
+                        key={item.id}
+                        value={printExtras[item.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS}
+                        onChange={(nextExtras) =>
+                          setPrintExtras((current) => ({ ...current, [item.id]: nextExtras }))
+                        }
+                        copies={item.printSettings?.copies ?? 1}
+                        imagePixels={item.imagePixels ?? null}
+                      />
+                    ) : (
                     <PrintExtrasOptions
                       key={item.id}
                       kind={printKind}
@@ -768,6 +859,7 @@ export default function Home() {
                         setConfiguredFileIds(new Set(files.map((file) => file.id)));
                       }}
                     />
+                    )}
                   </div>
                 );
               }}
