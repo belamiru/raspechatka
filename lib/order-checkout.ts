@@ -47,6 +47,17 @@ export function ensureOrderCheckoutSchema() {
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_created_at TIMESTAMPTZ;
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_delivery_approved_at TIMESTAMPTZ;
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS ozon_label_downloaded_at TIMESTAMPTZ;
+      /*
+       * Грузоместа заказа: в одном заказе их бывает несколько — плоская стопка
+       * документов и отдельные тубусы с плакатами.
+       *
+       * Колонка создаётся именно здесь, в общей схеме, потому что её читают
+       * четыре места: расчёт доставки Яндекса, расчёт Ozon, подтверждение
+       * заказа и создание заказа. Раньше она создавалась только в /api/orders,
+       * и остальные роуты падали с «column package_places does not exist»,
+       * если схема ещё не была инициализирована этим запросом.
+       */
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_places JSONB;
     `).then(() => undefined).catch((error) => {
       schemaReady = null;
       throw error;

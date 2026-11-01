@@ -157,11 +157,6 @@ function ensureSchema() {
       await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_height_mm INTEGER;`);
       await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_weight_grams INTEGER;`);
       await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS physical_sheet_count INTEGER;`);
-      /*
-       * Грузоместа сохраняем как JSON: в одном заказе их бывает несколько
-       * (плоская стопка + тубусы), а службам доставки нужны все.
-       */
-      await db.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS package_places JSONB;`);
     })().catch((error) => {
       schemaReady = null;
       throw error;
