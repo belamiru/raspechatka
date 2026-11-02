@@ -10,6 +10,7 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { FreeDeliveryProgress } from "@/components/free-delivery-progress";
 import { formatDeliveryPrice } from "@/lib/delivery";
+import { OZON_DELIVERY_ENABLED } from "@/lib/site";
 
 const fieldClass = "mt-2 w-full rounded-xl border border-slate-300 px-4 py-3";
 const statusLabels: Record<string, string> = {
@@ -268,10 +269,37 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
                       </span>
                     </label>
 
-                    <label className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition ${method === "ozon_pickup_point" ? "border-blue-600 bg-blue-50/60 ring-1 ring-blue-200" : "border-slate-200 hover:bg-slate-50"}`}>
-                      <input type="radio" name="fulfillment" className="mt-1 h-4 w-4 shrink-0" checked={method === "ozon_pickup_point"} onChange={() => { setMethod("ozon_pickup_point"); setPaymentMethod("online"); setPoint(null); setDeliveryQuote(null); }} />
+                    {/*
+                      Ozon временно недоступен: radio отключён, подпись серая,
+                      курсор не превращается в «руку». Пометка стоит прямо
+                      в заголовке, чтобы её нельзя было не заметить.
+                    */}
+                    <label
+                      className={`flex gap-3 rounded-xl border p-3 transition ${
+                        OZON_DELIVERY_ENABLED
+                          ? method === "ozon_pickup_point"
+                            ? "cursor-pointer border-blue-600 bg-blue-50/60 ring-1 ring-blue-200"
+                            : "cursor-pointer border-slate-200 hover:bg-slate-50"
+                          : "cursor-not-allowed border-slate-200 bg-slate-50/60"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="fulfillment"
+                        className="mt-1 h-4 w-4 shrink-0"
+                        disabled={!OZON_DELIVERY_ENABLED}
+                        checked={method === "ozon_pickup_point"}
+                        onChange={() => {
+                          setMethod("ozon_pickup_point");
+                          setPaymentMethod("online");
+                          setPoint(null);
+                          setDeliveryQuote(null);
+                        }}
+                      />
                       <span className="min-w-0">
-                        <span className="block text-sm font-bold text-slate-900">Ozon в ПВЗ</span>
+                        <span className={`block text-sm font-bold ${OZON_DELIVERY_ENABLED ? "text-slate-900" : "text-slate-500"}`}>
+                          Ozon в ПВЗ{!OZON_DELIVERY_ENABLED && " (временно недоступно)"}
+                        </span>
                         <span className="mt-0.5 block text-xs leading-5 text-slate-500">Только онлайн-оплата</span>
                       </span>
                     </label>
@@ -353,7 +381,7 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
                 )}
 
                 <button
-                  disabled={busy || (method === "yandex_pickup_point" && (!point || !deliveryQuote || quotingDelivery)) || (method === "ozon_pickup_point" && (!ozonPoint || !activeOzonQuote || quotingOzon))}
+                  disabled={busy || (method === "yandex_pickup_point" && (!point || !deliveryQuote || quotingDelivery)) || (OZON_DELIVERY_ENABLED && method === "ozon_pickup_point" && (!ozonPoint || !activeOzonQuote || quotingOzon))}
                   className="w-full rounded-xl bg-amber-500 px-5 py-4 font-bold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {busy

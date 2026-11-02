@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { getGuestOrder, hashGuestToken, ORDER_GUEST_COOKIE } from "@/lib/order-checkout";
 import { checkRateLimit, getRequestId, logAppError } from "@/lib/security";
 import { applyFreeDelivery } from "@/lib/delivery";
+import { OZON_DELIVERY_ENABLED } from "@/lib/site";
 import { calculateYandexPickupDelivery } from "@/lib/yandex-delivery";
 import { quoteOzonPickupDelivery } from "@/lib/ozon-order";
 
@@ -65,6 +66,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         return NextResponse.json({ error: "Не удалось прочитать данные выбранного пункта. Выберите его на карте ещё раз." }, { status: 400 });
       }
     } else if (fulfillmentMethod === "ozon_pickup_point") {
+      /*
+       * Защита от обхода интерфейса: пока Ozon отключён, такой заказ
+       * не принимаем, даже если запрос отправлен напрямую в API.
+       */
+      if (!OZON_DELIVERY_ENABLED) {
+        return NextResponse.json(
+          { error: "Доставка Ozon временно недоступна. Выберите самовывоз или Яндекс Доставку." },
+          { status: 400 }
+        );
+      }
       if (paymentMethod !== "online" || !pickupPoint || typeof pickupPoint !== "object" || Array.isArray(pickupPoint)) {
         return NextResponse.json({ error: "Доставка в пункт выдачи Ozon доступна только с онлайн-оплатой. Выберите пункт выдачи." }, { status: 400 });
       }
