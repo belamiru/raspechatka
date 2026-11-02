@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { SiteFooter } from "@/components/site-footer";
+import { SITE_DOMAIN } from "@/lib/site";
 import { BrandLogo } from "@/components/brand-logo";
 import { CookieSettingsButton } from "@/components/cookie-settings-button";
 
@@ -51,7 +52,7 @@ export default function PrivacyPage() {
               Оператор осуществляет деятельность под наименованием
               «Типография Copyleft» и предоставляет услуги печати и
               изготовления полиграфической продукции посредством сайта
-              распечатка.копилефт.рф.
+              {SITE_DOMAIN}.
             </p>
             <p className="mt-3">
               Политика применяется к данным посетителей сайта, заказчиков и

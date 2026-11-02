@@ -1,5 +1,6 @@
 "use client";
 
+import { SITE_NAME } from "@/lib/site";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -45,7 +46,7 @@ export default function AdminLoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-slate-100 px-5">
       <section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-7 shadow-xl sm:p-9">
         <p className="text-sm font-bold uppercase tracking-wider text-blue-700">
-          Распечатка
+          {SITE_NAME}
         </p>
 
         <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-900">

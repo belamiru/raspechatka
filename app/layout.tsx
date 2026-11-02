@@ -1,16 +1,17 @@
+import { SITE_URL, SITE_NAME } from "@/lib/site";
 import { CookieConsent } from "@/components/cookie-consent";
 import { LocalBusinessStructuredData } from "@/components/structured-data";
 import type { Metadata } from "next";
 import "./globals.css";
 
-const siteUrl = "https://xn--80aaas0a1afjm2c.xn--e1afffngyp.xn--p1ai";
+const siteUrl = SITE_URL;
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
 
   title: {
-    default: "Распечатка документов в Воронеже — онлайн-заказ",
-    template: "%s | Распечатка",
+    default: "Печать документов, фото и плакатов в Воронеже — онлайн-заказ",
+    template: `%s | ${SITE_NAME}`,
   },
 
   description:
@@ -24,15 +25,15 @@ export const metadata: Metadata = {
     type: "website",
     locale: "ru_RU",
     url: "/",
-    siteName: "Распечатка",
-    title: "Распечатка документов в Воронеже — онлайн-заказ",
+    siteName: SITE_NAME,
+    title: "Печать документов, фото и плакатов в Воронеже — онлайн-заказ",
     description:
       "Загрузите документ, выберите параметры печати и оформите заказ онлайн.",
   },
 
   twitter: {
     card: "summary",
-    title: "Распечатка документов в Воронеже",
+    title: "Печать документов, фото и плакатов в Воронеже",
     description:
       "Онлайн-заказ чёрно-белой печати документов A4 и A3 в Воронеже.",
   },

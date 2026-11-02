@@ -1,3 +1,4 @@
+import { SITE_URL } from "@/lib/site";
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
@@ -20,7 +21,7 @@ export const metadata: Metadata = {
   },
 };
 
-const siteUrl = "https://xn--80aaas0a1afjm2c.xn--e1afffngyp.xn--p1ai";
+const siteUrl = SITE_URL;
 
 export default function ColorPrintingPage() {
   const serviceSchema = {

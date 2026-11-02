@@ -1,3 +1,4 @@
+import { isSecureRequest } from "@/lib/site";
 import { NextResponse } from "next/server";
 import {
   createAdminSession,
@@ -34,7 +35,8 @@ export async function POST(request: Request) {
       name: getAdminCookieName(),
       value: session,
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      /* Как и для гостевой сессии: Secure только когда сайт правда по https. */
+      secure: isSecureRequest(request),
       sameSite: "lax",
       path: "/",
       maxAge: 60 * 60 * 24 * 7,

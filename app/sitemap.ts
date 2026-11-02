@@ -1,6 +1,7 @@
+import { SITE_URL } from "@/lib/site";
 import type { MetadataRoute } from "next";
 
-const siteUrl = "https://xn--80aaas0a1afjm2c.xn--e1afffngyp.xn--p1ai";
+const siteUrl = SITE_URL;
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const lastModified = new Date();

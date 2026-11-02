@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { SiteFooter } from "@/components/site-footer";
+import { SITE_DOMAIN } from "@/lib/site";
 import { BrandLogo } from "@/components/brand-logo";
 
 export const metadata: Metadata = {
@@ -43,7 +44,7 @@ export default function FileRulesPage() {
 
             <p className="mt-3">
               Настоящие Правила применяются к файлам, загружаемым пользователями
-              на сайте распечатка.копилефт.рф для оформления заказа на печать.
+              на сайте {SITE_DOMAIN} для оформления заказа на печать.
             </p>
 
             <p className="mt-3">

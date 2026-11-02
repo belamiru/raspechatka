@@ -1,5 +1,6 @@
 "use client";
 
+import { SITE_NAME } from "@/lib/site";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { YandexDeliveryStatus } from "@/components/yandex-delivery-status";
@@ -310,7 +311,7 @@ export default function AdminOrders({
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4">
           <div>
             <p className="text-sm font-bold uppercase tracking-wider text-blue-700">
-              Распечатка
+              {SITE_NAME}
             </p>
             <h1 className="text-2xl font-black">Заказы</h1>
           </div>

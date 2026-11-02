@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { getGuestOrder, hashGuestToken, ORDER_GUEST_COOKIE } from "@/lib/order-checkout";
 import { checkRateLimit, getRequestId, logAppError } from "@/lib/security";
 import { getTbankPaymentState, initTbankPayment } from "@/lib/tbank";
+import { getRequestOrigin } from "@/lib/site";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,10 +12,16 @@ export const dynamic = "force-dynamic";
 const REUSABLE_STATUSES = new Set(["NEW", "FORM_SHOWED", "AUTHORIZING", "AUTHORIZED"]);
 const RETRYABLE_STATUSES = new Set(["REJECTED", "CANCELED", "DEADLINE_EXPIRED"]);
 
+/*
+ * Ссылки, которые уходят в Т-Банк, должны вести на настоящий домен.
+ *
+ * Раньше здесь брался только APP_URL, а запасным вариантом был адрес запроса.
+ * За обратным прокси это внутренний адрес, и покупателя после оплаты уводило
+ * на недоступный хост — а на новом домене ещё и без гостевой cookie, то есть
+ * сразу на 404. Теперь общий помощник учитывает APP_URL и заголовки прокси.
+ */
 function appUrl(request: Request) {
-  const configured = process.env.APP_URL?.trim().replace(/\/$/, "");
-  if (configured && /^https:\/\//.test(configured)) return configured;
-  return new URL(request.url).origin;
+  return getRequestOrigin(request);
 }
 
 const TAXATION_VALUES = new Set(["osn", "usn_income", "usn_income_outcome", "esn", "patent"]);

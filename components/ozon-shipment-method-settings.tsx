@@ -1,5 +1,6 @@
 "use client";
 
+import { SITE_NAME } from "@/lib/site";
 import { useState } from "react";
 
 type Point = { id: string; title: string; address: string };
@@ -25,7 +26,7 @@ function statusLabel(status: string) {
 
 export function OzonShipmentMethodSettings({ initialMethod }: { initialMethod: ShipmentMethod | null }) {
   const [shipmentMethod, setShipmentMethod] = useState(initialMethod);
-  const [name, setName] = useState(initialMethod?.name ?? "Распечатка — Ozon");
+  const [name, setName] = useState(initialMethod?.name ?? `${SITE_NAME} — Ozon`);
   const [phoneNumber, setPhoneNumber] = useState(initialMethod?.phoneNumber ?? "+79611909993");
   const [dropoffPoints, setDropoffPoints] = useState<Point[]>([]);
   const [returnPoints, setReturnPoints] = useState<Point[]>([]);

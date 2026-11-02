@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { SiteFooter } from "@/components/site-footer";
+import { SITE_DOMAIN } from "@/lib/site";
 import { BrandLogo } from "@/components/brand-logo";
 
 export const metadata: Metadata = {
@@ -40,7 +41,7 @@ export default function PersonalDataConsentPage() {
         <div className="mt-10 space-y-8 rounded-3xl border border-slate-200 bg-white p-6 leading-7 shadow-sm sm:p-10">
           <section>
             <p>
-              Я, пользователь сайта распечатка.копилефт.рф, действуя свободно,
+              Я, пользователь сайта {SITE_DOMAIN}, действуя свободно,
               своей волей и в своём интересе, подтверждаю, что ознакомлен(а) с{" "}
               <a href="/privacy" className="text-blue-700 underline">
                 Политикой обработки персональных данных

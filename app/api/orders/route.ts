@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { ensureOrderCheckoutSchema, ORDER_GUEST_COOKIE, ORDER_GUEST_MAX_AGE, validGuestToken, newGuestToken, hashGuestToken } from "@/lib/order-checkout";
+import { isSecureRequest } from "@/lib/site";
 import { NextResponse } from "next/server";
 import { validateSupportedFile, type FileKind } from "@/lib/converter";
 import { getDb } from "@/lib/db";
@@ -949,9 +950,14 @@ export async function POST(request: Request) {
         totalPrice,
         checkoutUrl: `/orders/${orderId}/checkout`,
       });
+      /*
+       * Secure привязывает cookie к https: на http браузер её молча отбросит,
+       * и страница оформления отдаст 404 — она не найдёт заказ без токена.
+       * Поэтому смотрим на фактический протокол запроса, а не на NODE_ENV.
+       */
       response.cookies.set(ORDER_GUEST_COOKIE, guestToken, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: isSecureRequest(request),
         sameSite: "lax",
         path: "/",
         maxAge: ORDER_GUEST_MAX_AGE,

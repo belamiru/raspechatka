@@ -1,4 +1,5 @@
-const siteUrl = "https://xn--80aaas0a1afjm2c.xn--e1afffngyp.xn--p1ai";
+import { SITE_URL, SITE_NAME } from "@/lib/site";
+const siteUrl = SITE_URL;
 
 function toJsonLd(value: unknown) {
   return JSON.stringify(value).replace(/</g, "\\u003c");
