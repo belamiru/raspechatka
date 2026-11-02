@@ -39,6 +39,33 @@ function yandexError(body: unknown) {
   const message = (body as Record<string, unknown>).message;
   return typeof message === "string" && message.length <= 500 ? message : null;
 }
+/*
+ * Раскладывает сумму в копейках по грузоместам пропорционально весу.
+ *
+ * Нужно потому, что items должны ссылаться на каждое место через
+ * place_barcode. Сумма последнего места добирается до остатка, чтобы
+ * итог совпал с оплаченной суммой до копейки.
+ */
+function distributeKopecks(totalKopecks: number, places: DeliveryPlace[]) {
+  if (places.length <= 1) return [totalKopecks];
+
+  const totalWeight = places.reduce(
+    (sum, place) => sum + Math.max(1, place.weightGrams),
+    0
+  );
+  let remaining = totalKopecks;
+
+  return places.map((place, index) => {
+    if (index === places.length - 1) return remaining;
+
+    const share = Math.floor(
+      (totalKopecks * Math.max(1, place.weightGrams)) / totalWeight
+    );
+    remaining -= share;
+    return share;
+  });
+}
+
 function recipientInfo(recipient: Recipient) {
   const names = recipient.name.trim().split(/\s+/).filter(Boolean);
   return {
@@ -113,6 +140,27 @@ export async function createYandexPickupDelivery({ orderNumber, pickupPointId, p
   const deliveryPlaces = places && places.length > 0 ? places : [parcel];
   deliveryPlaces.forEach(validatePackage);
 
+  /*
+   * Штрихкод грузоместа.
+   *
+   * Яндекс связывает позицию заказа с грузоместом через place_barcode:
+   * значение в items[].place_barcode обязано совпадать с places[].barcode,
+   * иначе заявка отклоняется. Раньше оба поля были `print-{номер}` и совпадали
+   * сами собой. Когда мест стало несколько, у мест появился суффикс `-1`, `-2`,
+   * а у позиции он остался прежним — ссылка перестала находить место,
+   * и Яндекс перестал создавать заказы.
+   *
+   * Одно место оставляем с прежним кодом: так совместимо со старыми заявками
+   * и уже напечатанными ярлыками.
+   */
+  const placeBarcode = (index: number) =>
+    (deliveryPlaces.length > 1
+      ? `print-${orderNumber}-${index + 1}`
+      : `print-${orderNumber}`
+    ).slice(0, 100);
+
+  const itemKopecks = distributeKopecks(printPriceRubles * 100, deliveryPlaces);
+
   const response = await fetch(YANDEX_DELIVERY_CREATE_API, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "Accept-Language": "ru-RU" },
@@ -128,21 +176,30 @@ export async function createYandexPickupDelivery({ orderNumber, pickupPointId, p
       last_mile_policy: "self_pickup",
       // The customer has paid both printing and delivery through T-Bank.
       billing_info: { payment_method: "already_paid", delivery_cost: 0 },
-      items: [{
+      /*
+       * По позиции на каждое грузоместо. place_barcode берётся из той же
+       * функции, что и barcode места, — рассинхрон этих двух полей и ломал
+       * создание заявки.
+       */
+      items: deliveryPlaces.map((place, index) => ({
         count: 1,
-        name: `Печать документов, заказ ${orderNumber}`.slice(0, 255),
+        name: deliveryPlaces.length > 1
+          ? `Печатная продукция, заказ ${orderNumber}, место ${index + 1}`.slice(0, 255)
+          : `Печать документов, заказ ${orderNumber}`.slice(0, 255),
         article: "document-printing",
-        place_barcode: `print-${orderNumber}`.slice(0, 100),
+        place_barcode: placeBarcode(index),
         physical_dims: {
-          dx: toCentimeters(parcel.widthMm), dy: toCentimeters(parcel.lengthMm), dz: toCentimeters(parcel.heightMm),
+          dx: toCentimeters(place.widthMm),
+          dy: toCentimeters(place.lengthMm),
+          dz: toCentimeters(place.heightMm),
         },
         billing_details: {
-          unit_price: printPriceRubles * 100,
-          assessed_unit_price: printPriceRubles * 100,
+          unit_price: itemKopecks[index],
+          assessed_unit_price: itemKopecks[index],
         },
-      }],
+      })),
       places: deliveryPlaces.map((place, index) => ({
-        barcode: `print-${orderNumber}-${index + 1}`.slice(0, 100),
+        barcode: placeBarcode(index),
         physical_dims: {
           weight_gross: place.weightGrams,
           dx: toCentimeters(place.widthMm),
