@@ -32,7 +32,7 @@ export const COMPANY_NAME = "Типография Copyleft";
  * Вся логика Ozon — расчёт стоимости, выбор пункта, создание отправления —
  * остаётся в коде. Когда интеграция заработает, достаточно поставить true.
  */
-export const OZON_DELIVERY_ENABLED = false;
+export const OZON_DELIVERY_ENABLED = true;
 
 /*
  * Сайт может работать за обратным прокси: TLS завершается на нём, а до
