@@ -5,6 +5,7 @@ import { getTbankPaymentState, getTbankTerminalKey, isValidTbankToken } from "@/
 import { getRequestId, logAppError } from "@/lib/security";
 import { createYandexDeliveryForPaidOrder } from "@/lib/yandex-order-sync";
 import { createOzonDeliveryForPaidOrder } from "@/lib/ozon-order";
+import { notifyOrderStatus } from "@/lib/max-notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,6 +57,14 @@ export async function POST(request: Request) {
         updated_at = NOW()
       WHERE id = $4 AND payment_id = $5
     `, [state.Status || "UNKNOWN", confirmed, cancelled, order.id, paymentId]);
+    /*
+     * Об отмене сообщаем сразу: она может прийти именно сюда, минуя админку.
+     * Об оплате намеренно не пишем — первое уведомление о ходе заказа это
+     * «взят в работу».
+     */
+    if (cancelled) {
+      await notifyOrderStatus(order.id, "cancelled");
+    }
     if (confirmed) {
       // Delivery creation must never turn a confirmed payment into a failed webhook:
       // T-Bank would retry and the error is already persisted on the order row.

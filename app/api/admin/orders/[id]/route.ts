@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getAdminCookieName, isAdminSession } from "@/lib/auth";
 import { getDb } from "@/lib/db";
+import { notifyOrderStatus } from "@/lib/max-notifications";
 
 export const runtime = "nodejs";
 
@@ -57,8 +58,15 @@ export async function PATCH(
     );
   }
 
+  /*
+   * Уведомление покупателю не должно ломать смену статуса: notifyOrderStatus
+   * гасит собственные ошибки и наружу ничего не выбрасывает. Статусы, о
+   * которых не уведомляем (new, paid, completed), функция просто игнорирует.
+   */
+  await notifyOrderStatus(String(orderId), status);
+
   return NextResponse.json({
     success: true,
-    status: result.rows[0].status,
+    status,
   });
 }

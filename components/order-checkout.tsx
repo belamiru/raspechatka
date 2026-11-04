@@ -415,6 +415,21 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
                   {order.customer_comment && <p className="whitespace-pre-wrap">{order.customer_comment}</p>}
                 </div>
 
+                {/*
+                  Ссылка ведёт на серверный обработчик: он проверяет гостевой cookie
+                  заказа и только затем выпускает одноразовый токен для бота.
+                  Номер заказа в ссылку не попадает.
+                */}
+                <a
+                  href={`/api/orders/${order.id}/max-link`}
+                  className="mt-5 flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Получать уведомления в MAX
+                </a>
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  Откроется чат-бот: напишет, когда заказ возьмут в работу и когда он будет готов.
+                </p>
+
                 {awaitingPayment && (
                   retryablePayment ? (
                     <div className="mt-5 space-y-3 rounded-xl bg-red-50 p-4 text-red-900">
