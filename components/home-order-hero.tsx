@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { FileTypeIcon } from "@/components/file-type-icon";
 import {
@@ -10,7 +11,7 @@ import {
   validateClientFile,
 } from "@/lib/client-file-analysis";
 import { reachMetrikaGoal } from "@/lib/metrika";
-import { setPendingOrderFiles } from "@/lib/pending-order-files";
+import { setPendingHelpMode, setPendingOrderFiles } from "@/lib/pending-order-files";
 import {
   getPhotoPriceForCount,
   getPosterPaper,
@@ -120,6 +121,8 @@ export function HomeOrderHero() {
   const [website, setWebsite] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [helpError, setHelpError] = useState("");
+  const router = useRouter();
 
   const isReady = uploaded?.status === "ready" && (uploaded.pages ?? 0) > 0;
   const isAnalyzing = uploaded?.status === "analyzing";
@@ -221,6 +224,40 @@ export function HomeOrderHero() {
           : current
       );
     }
+  }
+
+  /*
+   * Кнопка под загрузчиком ведёт на страницу заказа в режиме помощи.
+   * Без готового файла отправлять нечего, поэтому сразу предупреждаем
+   * и оставляем пользователя на месте.
+   */
+  function handleHelpRequest() {
+    setHelpError("");
+
+    if (!uploaded || uploaded.status !== "ready" || !uploaded.pages) {
+      setHelpError("Вы забыли прикрепить файл для вашего заказа.");
+      return;
+    }
+
+    setPendingOrderFiles([
+      {
+        id: makeFileId(),
+        file: uploaded.file,
+        kind: uploaded.kind,
+        pageCount: uploaded.pages,
+        draftId: uploaded.draftId,
+        previewUrl: null,
+        printSettings: {
+          copies,
+          printSides: uploaded.kind === "image" ? "one-sided" : printSides,
+          defaults: { paperFormat: effectivePaperFormat, colorMode },
+          pageOverrides: {},
+        },
+        printExtras: { photoFormat, photoFit, posterPaper, posterFormat, posterWidthMm, posterHeightMm },
+      },
+    ]);
+    setPendingHelpMode(true);
+    router.push("/order");
   }
 
   async function handleSubmit() {
@@ -492,6 +529,22 @@ export function HomeOrderHero() {
                   )}
                 </div>
               )}
+
+              <div className="border-t border-slate-100 pt-3">
+                <button
+                  type="button"
+                  onClick={handleHelpRequest}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800 transition hover:border-blue-300 hover:bg-blue-100"
+                >
+                  Хочу получить помощь с настройкой заказа
+                </button>
+
+                {helpError && (
+                  <p role="alert" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium leading-5 text-red-700 ring-1 ring-red-100">
+                    {helpError}
+                  </p>
+                )}
+              </div>
 
               {isPosterMode ? (
                 <>

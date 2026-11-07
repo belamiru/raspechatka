@@ -36,7 +36,7 @@ import {
 import { getExtrasPrice, getPosterExtrasPrice } from "@/lib/print-extras";
 import { getPosterPaper, validatePosterSize } from "@/lib/pricing";
 import { FreeDeliveryProgress } from "@/components/free-delivery-progress";
-import { takePendingOrderFiles } from "@/lib/pending-order-files";
+import { takePendingHelpMode, takePendingOrderFiles } from "@/lib/pending-order-files";
 import { PosterOptions } from "@/components/poster-options";
 
 
@@ -500,6 +500,17 @@ export default function Home() {
    * повторное монтирование не задвоит файл.
    */
   useEffect(() => {
+    /*
+     * Кнопка на главной открывает страницу заказа сразу в режиме помощи,
+     * поэтому флаг читаем до раннего выхода: файла может и не быть, тогда
+     * отправку заблокирует проверка в submitHelp.
+     */
+    if (takePendingHelpMode()) {
+      /* Разовая инициализация из памяти вкладки, а не синхронизация с внешней системой. */
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHelpMode(true);
+    }
+
     const pending = takePendingOrderFiles();
 
     if (pending.length === 0) {
@@ -590,7 +601,10 @@ export default function Home() {
   async function submitHelp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isSubmitting) return;
-    if (!files.length) { setFormError("Выберите хотя бы один файл."); return; }
+    if (!files.length) {
+      setFormError("Вы забыли прикрепить файл для вашего заказа.");
+      return;
+    }
     if (!personalDataConsent) { setFormError("Необходимо согласие на обработку персональных данных."); return; }
     setFormError(""); setIsSubmitting(true);
     try {
@@ -796,7 +810,7 @@ export default function Home() {
             </fieldset>
             <label className="flex gap-2 text-sm"><input required type="checkbox" checked={personalDataConsent} onChange={e => setPersonalDataConsent(e.target.checked)} /><span>Согласен на <Link href="/personal-data-consent" target="_blank" className="text-blue-700 underline">обработку персональных данных</Link>.</span></label>
             {formError && <p role="alert" className="text-red-700">{formError}</p>}
-            <button type="submit" disabled={isSubmitting} className="rounded-xl bg-blue-700 px-6 py-3 font-bold text-white disabled:opacity-50">{isSubmitting ? "Отправляем…" : "Оформить заказ"}</button>
+            <button type="submit" disabled={isSubmitting} className="rounded-xl bg-blue-700 px-6 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{isSubmitting ? "Отправляем…" : "Оформить заказ"}</button>
           </form>
         ) : (
         <form

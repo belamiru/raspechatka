@@ -47,3 +47,20 @@ export function takePendingOrderFiles(): PendingOrderFile[] {
   pendingFiles = [];
   return files;
 }
+
+/*
+ * Признак того, что переход на страницу заказа сделан кнопкой «Хочу получить
+ * помощь с настройкой заказа» на главной. Флаг живёт только в памяти вкладки,
+ * как и сами файлы, поэтому перезагрузка страницы его сбрасывает.
+ */
+let pendingHelpMode = false;
+
+export function setPendingHelpMode(value: boolean) {
+  pendingHelpMode = value;
+}
+
+export function takePendingHelpMode() {
+  const value = pendingHelpMode;
+  pendingHelpMode = false;
+  return value;
+}
