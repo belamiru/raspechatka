@@ -3,7 +3,6 @@ import { SiteFooter } from "@/components/site-footer";
 import { SITE_DOMAIN } from "@/lib/site";
 import { BrandLogo } from "@/components/brand-logo";
 import { CookieSettingsButton } from "@/components/cookie-settings-button";
-import { TEST_ANALYTICS_WITHOUT_CONSENT } from "@/lib/metrika";
 
 export const metadata: Metadata = {
   title: "Политика обработки персональных данных",
@@ -190,15 +189,9 @@ export default function PrivacyPage() {
               (Top.Mail.Ru) для анализа посещений и действий на сайте. Сервисы могут обрабатывать
               технические данные, сведения о браузере и взаимодействиях со страницами.</p>
             <p className="mt-3">Вебвизор записывает взаимодействия с сайтом;</p>
-            {TEST_ANALYTICS_WITHOUT_CONSENT ? null (
-              
-            ) : (
-              <>
                 <p className="mt-3">Аналитика подключается после согласия пользователя. Изменить
                   выбор можно, сбросив настройки и перезагрузив страницу.</p>
                 <CookieSettingsButton />
-              </>
-            )}
             <p className="mt-3">Google Analytics на сайте не используется.</p>
           </section>
 
