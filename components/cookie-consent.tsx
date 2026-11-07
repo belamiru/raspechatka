@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { YANDEX_METRIKA_ID } from "@/lib/metrika";
+import { YANDEX_METRIKA_ID, VK_PIXEL_ID, TEST_ANALYTICS_WITHOUT_CONSENT } from "@/lib/metrika";
 
 type ConsentChoice = "analytics" | "necessary" | null;
 
@@ -34,7 +35,7 @@ function startYandexMetrika() {
     clickmap: true,
     trackLinks: true,
     accurateTrackBounce: true,
-    webvisor: false,
+    webvisor: true,
   });
 
   const script = document.createElement("script");
@@ -45,7 +46,21 @@ function startYandexMetrika() {
   document.head.appendChild(script);
 }
 
+function startVkPixel() {
+  if (document.getElementById("tmr-code")) return;
+  window.dataLayer = window.dataLayer || [];
+  window._tmr = window._tmr || [];
+  window._tmr.push({ id: VK_PIXEL_ID, type: "pageView", start: Date.now() });
+  const script = document.createElement("script");
+  script.id = "tmr-code";
+  script.async = true;
+  script.src = "https://top-fwz1.mail.ru/js/code.js";
+  document.head.appendChild(script);
+}
+
 export function CookieConsent() {
+  const pathname = usePathname();
+  const previousPath = useRef<string | null>(null);
   const [consent, setConsent] = useState<ConsentChoice>(null);
   const [isReady, setIsReady] = useState(false);
 
@@ -54,13 +69,22 @@ export function CookieConsent() {
       CONSENT_STORAGE_KEY
     ) as ConsentChoice;
 
-    if (savedConsent === "analytics") {
+    if (TEST_ANALYTICS_WITHOUT_CONSENT || savedConsent === "analytics") {
       startYandexMetrika();
+      startVkPixel();
     }
 
     setConsent(savedConsent);
     setIsReady(true);
   }, []);
+
+  useEffect(() => {
+    if (!pathname || !window._tmr) return;
+    if (previousPath.current !== null && previousPath.current !== pathname) {
+      window._tmr.push({ id: VK_PIXEL_ID, type: "pageView", url: window.location.origin + pathname });
+    }
+    previousPath.current = pathname;
+  }, [pathname, consent]);
 
   function saveConsent(choice: Exclude<ConsentChoice, null>) {
     window.localStorage.setItem(CONSENT_STORAGE_KEY, choice);
@@ -68,10 +92,11 @@ export function CookieConsent() {
 
     if (choice === "analytics") {
       startYandexMetrika();
+      startVkPixel();
     }
   }
 
-  if (!isReady || consent) {
+  if (TEST_ANALYTICS_WITHOUT_CONSENT || !isReady || consent) {
     return null;
   }
 
@@ -93,9 +118,8 @@ export function CookieConsent() {
 
           <p className="mt-2 text-sm leading-6 text-slate-600">
             Необходимые технические технологии помогают сайту работать. С вашего
-            согласия мы подключаем Яндекс Метрику для анализа посещаемости и
-            улучшения сервиса. В аналитику не передаются данные формы заказа и
-            загруженные файлы.
+            согласия мы подключаем Яндекс Метрику и VK Пиксель для анализа посещаемости и
+            улучшения сервиса. Вебвизор может записывать взаимодействия со страницами.
           </p>
 
           <Link
