@@ -399,6 +399,18 @@ export default function AdminOrders({
                 0
               );
 
+              if (order.fulfillmentMethod === "help_call" || order.fulfillmentMethod === "help_max") {
+                return <article key={order.id} className="rounded-3xl bg-white p-5 shadow-sm sm:p-7">
+                  <p className="font-bold text-blue-700">{order.orderNumber}</p>
+                  <h2 className="mt-1 text-xl font-black">Нужна помощь с настройкой заказа</h2>
+                  <p className="mt-1 text-sm text-slate-500">{new Date(order.createdAt).toLocaleString("ru-RU")}</p>
+                  <p className="mt-3">Телефон: <a className="text-blue-700 underline" href={`tel:${order.customerPhone}`}>{order.customerPhone}</a></p>
+                  <p>Связь: {order.fulfillmentMethod === "help_call" ? "позвонить" : "написать в MAX"}</p>
+                  <p>Параметры, способ получения и стоимость уточняются.</p>
+                  <label className="mt-3 block">Статус: <select value={order.status} disabled={updatingId === order.id} onChange={e => changeStatus(order.id, e.target.value as OrderStatus)} className="rounded border p-2">{statuses.filter(s => !["awaiting_checkout", "awaiting_payment", "paid"].includes(s.value)).map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select></label>
+                  <ul className="mt-3 list-inside list-disc">{order.files.map(file => <li key={file.id}><a className="text-blue-700 underline" href={`/api/admin/files/${file.id}`}>{file.fileName ?? "Файл"}</a></li>)}</ul>
+                </article>;
+              }
               return (
                 <article
                   key={order.id}

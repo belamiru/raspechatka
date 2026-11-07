@@ -5,7 +5,7 @@
  * Когда появится новый дизайн страницы заказа, этот файл заменится.
  */
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { OrderFileDropzone } from "@/components/order-file-dropzone";
 import {
@@ -69,6 +69,10 @@ function makeFileKey(file: File) {
 }
 
 export default function Home() {
+  const [helpMode, setHelpMode] = useState(false);
+  const deferredAnalysis = useRef(new Map<string, File>());
+  const [helpPhone, setHelpPhone] = useState("");
+  const [helpContact, setHelpContact] = useState<"call" | "max">("call");
   const [files, setFiles] = useState<OrderFileListItem[]>([]);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
 
@@ -286,6 +290,7 @@ export default function Home() {
   );
 
   function removeFile(id: string) {
+    deferredAnalysis.current.delete(id);
     setFiles((currentFiles) =>
       currentFiles.filter((file) => file.id !== id)
     );
@@ -483,7 +488,8 @@ export default function Home() {
     reachMetrikaGoal("file_selected");
 
     for (const item of newItems) {
-      void analyzeAddedFile(item.id, item.file);
+      if (helpMode) deferredAnalysis.current.set(item.id, item.file);
+      else void analyzeAddedFile(item.id, item.file);
     }
   }
 
@@ -580,6 +586,26 @@ export default function Home() {
       maxWidthMm: paper.maxWidthMm,
     }).valid;
   });
+
+  async function submitHelp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSubmitting) return;
+    if (!files.length) { setFormError("Выберите хотя бы один файл."); return; }
+    if (!personalDataConsent) { setFormError("Необходимо согласие на обработку персональных данных."); return; }
+    setFormError(""); setIsSubmitting(true);
+    try {
+      const data = new FormData();
+      data.set("orderMode", "help"); data.set("helpPhone", helpPhone);
+      data.set("helpContact", helpContact); data.set("website", website);
+      data.set("personalDataConsent", "true");
+      for (const item of files) data.append("helpFiles", item.file, item.file.name);
+      const response = await fetch("/api/orders", { method: "POST", body: data });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || "Не удалось оформить заказ.");
+      window.location.assign("/order/created");
+    } catch (error) { setFormError(error instanceof Error ? error.message : "Ошибка соединения."); }
+    finally { setIsSubmitting(false); }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -734,17 +760,45 @@ export default function Home() {
           <div>
             <h1 className="text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">Настройте заказ</h1>
             <p className="mt-2 max-w-xl leading-7 text-slate-600">
-              Проверьте файлы, выберите параметры печати и узнайте итоговую стоимость.
+              {helpMode ? "Добавьте файлы и оставьте номер телефона — мы поможем с настройкой." : "Проверьте файлы, выберите параметры печати и узнайте итоговую стоимость."}
             </p>
           </div>
 
-          <ol className="grid w-full max-w-md grid-cols-3 gap-2 text-xs font-semibold text-slate-500 sm:text-sm" aria-label="Этапы заказа">
+          {!helpMode && <ol className="grid w-full max-w-md grid-cols-3 gap-2 text-xs font-semibold text-slate-500 sm:text-sm" aria-label="Этапы заказа">
             <li aria-current="step"><span className="block h-1.5 rounded-full bg-blue-600" /><span className="mt-2 block text-slate-900">1. Файлы</span></li>
             <li><span className="block h-1.5 rounded-full bg-slate-200" /><span className="mt-2 block">2. Оформление</span></li>
             <li><span className="block h-1.5 rounded-full bg-slate-200" /><span className="mt-2 block">3. Оплата</span></li>
-          </ol>
+          </ol>}
         </div>
 
+        <label className="mb-6 flex cursor-pointer gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 font-semibold text-blue-900">
+          <input type="checkbox" checked={helpMode} disabled={isSubmitting} onChange={(event) => {
+            const enabled = event.target.checked;
+            setHelpMode(enabled); setFormError("");
+            if (!enabled) {
+              for (const [id, file] of deferredAnalysis.current) void analyzeAddedFile(id, file);
+              deferredAnalysis.current.clear();
+            }
+          }} />
+          Хочу получить помощь с настройкой заказа
+        </label>
+        {helpMode ? (
+          <form onSubmit={submitHelp} className="space-y-5 rounded-3xl border border-slate-200 bg-white p-6">
+            <p>Добавьте файлы и оставьте телефон. Менеджер поможет настроить заказ и уточнит стоимость.</p>
+            <OrderFileDropzone disabled={isSubmitting} isProcessing={false} onFilesSelected={addFiles} />
+            <ul className="space-y-2">{files.map(item => <li key={item.id} className="flex items-center justify-between gap-3"><span className="break-all">{item.file.name}</span><button type="button" disabled={isSubmitting} onClick={() => removeFile(item.id)} className="text-red-700 underline">Удалить</button></li>)}</ul>
+            <p className="text-sm text-slate-500">До 8 файлов, каждый до 50 МБ, всего до 200 МБ.</p>
+            <label className="block font-semibold">Номер телефона<input required type="tel" autoComplete="tel" maxLength={40} value={helpPhone} onChange={e => setHelpPhone(e.target.value)} className="mt-2 block w-full rounded-xl border p-3" placeholder="+7 999 123-45-67" /></label>
+            <fieldset className="space-y-2"><legend className="font-semibold">Как с вами связаться?</legend>
+              <label className="block"><input type="radio" name="helpContact" checked={helpContact === "call"} onChange={() => setHelpContact("call")} /> Позвонить</label>
+              <label className="block"><input type="radio" name="helpContact" checked={helpContact === "max"} onChange={() => setHelpContact("max")} /> Написать в MAX</label>
+              {helpContact === "max" && <p className="text-sm">Укажите номер, привязанный к MAX. Возможность написать зависит от настроек MAX.</p>}
+            </fieldset>
+            <label className="flex gap-2 text-sm"><input required type="checkbox" checked={personalDataConsent} onChange={e => setPersonalDataConsent(e.target.checked)} /><span>Согласен на <Link href="/personal-data-consent" target="_blank" className="text-blue-700 underline">обработку персональных данных</Link>.</span></label>
+            {formError && <p role="alert" className="text-red-700">{formError}</p>}
+            <button type="submit" disabled={isSubmitting} className="rounded-xl bg-blue-700 px-6 py-3 font-bold text-white disabled:opacity-50">{isSubmitting ? "Отправляем…" : "Оформить заказ"}</button>
+          </form>
+        ) : (
         <form
           onSubmit={handleSubmit}
           className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]"
@@ -1017,9 +1071,10 @@ export default function Home() {
             </aside>
           </div>
         </form>
+        )}
       </section>
 
-      {files.length > 0 && (
+      {!helpMode && files.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-5 py-3 shadow-[0_-4px_16px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
             <p className="text-lg font-black text-slate-950">Итого: {price} ₽</p>

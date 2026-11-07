@@ -1,3 +1,4 @@
+import { createHelpModeOrder } from "@/lib/help-mode-order";
 import { cookies } from "next/headers";
 import { ensureOrderCheckoutSchema, ORDER_GUEST_COOKIE, ORDER_GUEST_MAX_AGE, validGuestToken, newGuestToken, hashGuestToken } from "@/lib/order-checkout";
 import { isSecureRequest } from "@/lib/site";
@@ -510,6 +511,11 @@ export async function POST(request: Request) {
         success: true,
         orderNumber: `R-${Date.now()}`,
       });
+    }
+
+    if (textValue(formData, "orderMode") === "help") {
+      if (request.headers.get("sec-fetch-site") === "cross-site") return NextResponse.json({ error: "Нет доступа." }, { status: 403 });
+      return await createHelpModeOrder(formData, createOrderNumber());
     }
 
     const parsedOrderItems = parseSubmittedOrderItems(
