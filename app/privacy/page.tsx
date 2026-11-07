@@ -190,7 +190,7 @@ export default function PrivacyPage() {
               (Top.Mail.Ru) для анализа посещений и действий на сайте. Сервисы могут обрабатывать
               технические данные, сведения о браузере и взаимодействиях со страницами.</p>
             <p className="mt-3">Вебвизор записывает взаимодействия с сайтом;</p>
-            {TEST_ANALYTICS_WITHOUT_CONSENT ? (
+            {TEST_ANALYTICS_WITHOUT_CONSENT ? null (
               
             ) : (
               <>
