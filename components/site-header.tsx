@@ -12,7 +12,7 @@ const MAX_URL = "https://max.ru/u/f9LHodD0cOJSiXthYzqOB1UCkuCYaObsZoaN6c_SgReZfE
  * Ссылки вида "/#id" работают и на главной (плавный скролл без перезагрузки),
  * и на внутренних страницах (переход на главную к нужному блоку).
  */
-const UPLOAD_HREF = "/#upload";
+const UPLOAD_HREF = "/order";
 
 const SERVICE_GROUPS: { title: string; links: { label: string; href: string }[] }[] = [
   {

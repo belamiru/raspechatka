@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { BenefitsStrip } from "@/components/benefits-strip";
-import { HomeOrderHero } from "@/components/home-order-hero";
+import { HomeHero } from "@/components/home-hero";
 import { PrintServices } from "@/components/print-services";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -34,7 +34,7 @@ export default function HomePage() {
     <main className="min-h-screen bg-white text-slate-900">
       <SiteHeader />
 
-      <HomeOrderHero />
+      <HomeHero />
       <BenefitsStrip />
       <PrintServices />
 
