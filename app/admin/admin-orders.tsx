@@ -3,7 +3,7 @@
 import { SITE_NAME } from "@/lib/site";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { YandexDeliveryStatus } from "@/components/yandex-delivery-status";
+import { AdminFulfillment } from "@/components/admin-fulfillment";
 
 type OrderStatus =
   | "awaiting_checkout"
@@ -487,21 +487,18 @@ export default function AdminOrders({
                       <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
                         Получение
                       </p>
-                      {order.fulfillmentMethod === "yandex_pickup_point" ? (
-                        <div className="mt-2 text-sm leading-6 text-slate-700">
-                          <p className="font-semibold">Доставка в ПВЗ Яндекс Доставки</p>
-                          <p>{order.pickupPointAddress ?? "Пункт ещё не выбран"}</p>
-                          {order.pickupPointType && <p>{order.pickupPointType === "terminal" ? "Постамат" : "ПВЗ"}{order.pickupPointId ? ` · ID: ${order.pickupPointId}` : ""}</p>}
-                          <p>{order.deliveryPrice === null ? "Стоимость доставки уточняется" : `Доставка: ${order.deliveryPrice} ₽`}</p>
-                          <YandexDeliveryStatus
-                            orderId={order.id}
-                            orderStatus={order.status}
-                            status={order.yandexDeliveryStatus}
-                            requestId={order.yandexDeliveryRequestId}
-                            error={order.yandexDeliveryError}
-                          />
-                        </div>
-                      ) : <p className="mt-2 text-sm text-slate-700">Самовывоз · бесплатно</p>}
+                      <AdminFulfillment
+                        orderId={order.id}
+                        orderStatus={order.status}
+                        method={order.fulfillmentMethod}
+                        pickupPointId={order.pickupPointId}
+                        pickupPointAddress={order.pickupPointAddress}
+                        pickupPointType={order.pickupPointType}
+                        deliveryPrice={order.deliveryPrice}
+                        yandexDeliveryStatus={order.yandexDeliveryStatus}
+                        yandexDeliveryRequestId={order.yandexDeliveryRequestId}
+                        yandexDeliveryError={order.yandexDeliveryError}
+                      />
                     </div>
 
                     <div>
