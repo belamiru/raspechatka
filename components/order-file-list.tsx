@@ -266,6 +266,20 @@ export function OrderFileList({
               )}
             </div>
 
+            {isReady && item.kind === "document" && item.draftId && (
+              <div className="border-t border-slate-100 px-4 py-2.5">
+                <a
+                  href={`/print-drafts/${item.draftId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block rounded-lg bg-blue-700 px-3 py-1.5 text-sm font-bold text-white transition hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-200"
+                  aria-label={`Настроить страницы файла ${item.file.name} в новой вкладке`}
+                >
+                  Настроить страницы
+                </a>
+              </div>
+            )}
+
             {isSettingsOpen && (
               <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-4">
                 {renderSettings?.(item)}
@@ -288,19 +302,6 @@ export function OrderFileList({
                 </button>
               )}
 
-              {/* Предпросмотр с выбором опций для каждой страницы: только документы. */}
-              {isReady && item.kind === "document" && item.draftId && (
-                <a
-                  href={`/print-drafts/${item.draftId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(event) => event.stopPropagation()}
-                  className="rounded-lg bg-blue-700 px-3 py-1.5 text-sm font-bold text-white transition hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-200"
-                  aria-label={`Открыть предпросмотр файла ${item.file.name} в новой вкладке`}
-                >
-                  Предпросмотр
-                </a>
-              )}
 
               <button
                 type="button"
