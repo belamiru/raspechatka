@@ -1,3 +1,4 @@
+import { priceOrderItem } from "@/lib/order-item-pricing";
 import { createHelpModeOrder } from "@/lib/help-mode-order";
 import { cookies } from "next/headers";
 import { ensureOrderCheckoutSchema, ORDER_GUEST_COOKIE, ORDER_GUEST_MAX_AGE, validGuestToken, newGuestToken, hashGuestToken } from "@/lib/order-checkout";
@@ -7,15 +8,11 @@ import { validateSupportedFile, type FileKind } from "@/lib/converter";
 import { getDb } from "@/lib/db";
 import { uploadOrderFile } from "@/lib/yandex-disk";
 import {
-  getPhotoPriceForCount,
   getPosterPaper,
-  getPosterPrice,
-  getPrintPriceForPages,
   validatePosterSize,
 } from "@/lib/pricing";
 import {
   DEFAULT_PRINT_EXTRA_OPTIONS,
-  getExtrasPrice,
   type CoverSet,
   type PhotoFit,
   type PhotoFormat,
@@ -24,7 +21,7 @@ import {
   type PrintExtraOptions,
 } from "@/lib/print-extras";
 import { calculateOrderParcel } from "@/lib/order-parcel";
-import { getPrintablePageCount, getPrintablePageOptions, type PagePrintOverride } from "@/lib/print-settings";
+import { getPrintablePageCount, type PagePrintOverride } from "@/lib/print-settings";
 import {
   checkRateLimit,
   getRequestId,
@@ -68,6 +65,7 @@ type SubmittedFileSettings = {
   extras: PrintExtraOptions;
   /* Тип печати файла: от него зависит формула цены. */
   printKind: "document" | "photo" | "poster";
+  printKindProvided: boolean;
 };
 
 let schemaReady: Promise<void> | null = null;
@@ -380,6 +378,9 @@ function parseFileSettings(
     }
 
     const rawPrintKind = value.printKind;
+    if (rawPrintKind !== undefined && rawPrintKind !== "photo" && rawPrintKind !== "poster" && rawPrintKind !== "document") {
+      return { valid: false, error: "Выбран некорректный тип печати." };
+    }
     const printKind =
       rawPrintKind === "photo" || rawPrintKind === "poster" || rawPrintKind === "document"
         ? rawPrintKind
@@ -402,6 +403,7 @@ function parseFileSettings(
       pageOverrides,
       extras: parsedExtras,
       printKind,
+      printKindProvided: rawPrintKind !== undefined,
     });
   }
 
@@ -590,7 +592,8 @@ export async function POST(request: Request) {
     let imageIndex = 0;
 
     for (const [index, submittedItem] of submittedItems.entries()) {
-      const settings = parsedFileSettings.settings[index];
+      const incomingSettings = parsedFileSettings.settings[index];
+      const settings = { ...incomingSettings, printKind: incomingSettings.printKindProvided ? incomingSettings.printKind : (submittedItem.kind === "image" ? "photo" as const : "document" as const) };
 
       if (settings.fileId !== submittedItem.fileId) {
         return NextResponse.json(
@@ -629,7 +632,7 @@ export async function POST(request: Request) {
       if (Object.keys(settings.pageOverrides).some((page) => Number(page) > draft.pageCount)) {
         return NextResponse.json({ error: "Настройки содержат несуществующую страницу документа.", requestId }, { status: 400 });
       }
-      if (getPrintablePageCount(draft.pageCount, { copies: settings.copies, printSides: settings.printSides, defaults: { paperFormat: settings.paperFormat, colorMode: settings.colorMode }, pageOverrides: settings.pageOverrides }) < 1) {
+      if (settings.printKind === "document" && getPrintablePageCount(draft.pageCount, { copies: settings.copies, printSides: settings.printSides, defaults: { paperFormat: settings.paperFormat, colorMode: settings.colorMode }, pageOverrides: settings.pageOverrides }) < 1) {
         return NextResponse.json({ error: "Нельзя исключить все страницы документа.", requestId }, { status: 400 });
       }
 
@@ -659,99 +662,10 @@ export async function POST(request: Request) {
     }
 
     const pricedItems = preparedItems.map((item) => {
-      const pageOptions = item.kind === "document"
-        ? getPrintablePageOptions(item.pageCount, { copies: item.settings.copies, printSides: item.settings.printSides, defaults: { paperFormat: item.settings.paperFormat, colorMode: item.settings.colorMode }, pageOverrides: item.settings.pageOverrides })
-        : [{ paperFormat: item.settings.paperFormat, colorMode: item.settings.colorMode }];
-
-      /*
-       * Фотографии считаются по прайсу фотопечати 10×15 — за отпечаток,
-       * а не за страницу A4. Логика должна совпадать с браузером.
-       */
-      /*
-       * Плакат считается по площади и материалу — как в браузере. Проверяем
-       * размер теми же функциями, чтобы сервер не принял лист вне рулона.
-       */
-      if (item.settings.printKind === "poster") {
-        const posterSize = {
-          widthMm: item.settings.extras.posterWidthMm,
-          heightMm: item.settings.extras.posterHeightMm,
-        };
-        const paper = getPosterPaper(item.settings.extras.posterPaper);
-
-        const posterPricing = getPosterPrice({
-          ...posterSize,
-          pricePerSqm: paper.pricePerSqm,
-          copies: item.settings.copies,
-        });
-
-        return {
-          ...item,
-          pricing: {
-            ...getPrintPriceForPages({
-              pageOptions: pageOptions,
-              printSides: "one-sided",
-              copies: item.settings.copies,
-            }),
-            totalPrice: posterPricing.totalPrice,
-            quantity: posterPricing.copies,
-            physicalSheetQuantity: posterPricing.copies,
-            sheetsPerCopy: 1,
-          },
-          extrasPricing: getExtrasPrice({
-            extras: { ...item.settings.extras, paper: "80" },
-            pageOptions,
-            printSides: item.settings.printSides,
-            copies: item.settings.copies,
-            printPrice: posterPricing.totalPrice,
-          }),
-        };
-      }
-
-      const pricing =
-        item.kind === "image"
-          ? (() => {
-              /*
-               * Формат фотобумаги приходит в доп. опциях: цена за отпечаток
-               * зависит от размера листа, а не от страницы A4.
-               */
-              const photoPricing = getPhotoPriceForCount(
-                item.settings.copies,
-                item.settings.extras.photoFormat
-              );
-
-              return {
-                ...getPrintPriceForPages({
-                  pageOptions: [{ paperFormat: item.settings.paperFormat, colorMode: item.settings.colorMode }],
-                  printSides: "one-sided",
-                  copies: item.settings.copies,
-                }),
-                totalPrice: photoPricing.totalPrice,
-                quantity: photoPricing.quantity,
-                physicalSheetQuantity: photoPricing.quantity,
-                sheetsPerCopy: 1,
-              };
-            })()
-          : getPrintPriceForPages({
-              pageOptions,
-              printSides: item.settings.printSides,
-              copies: item.settings.copies,
-            });
-
-      /*
-       * Сумма доп. опций считается той же функцией, что и в браузере, —
-       * иначе клиент увидел бы одну цену, а заказ создался бы с другой.
-       */
-      const extrasPricing = getExtrasPrice({
-        /* У фотобумаги своя цена: надбавка за плотность к фотопечати не применяется. */
-        extras:
-          item.kind === "image" ? { ...item.settings.extras, paper: "80" } : item.settings.extras,
-        pageOptions,
-        printSides: item.settings.printSides,
-        copies: item.settings.copies,
-        printPrice: pricing.totalPrice,
-      });
-
-      return { ...item, pricing, extrasPricing };
+      const settings = { copies: item.settings.copies, printSides: item.settings.printKind === "document" ? item.settings.printSides : "one-sided" as const,
+        defaults: { paperFormat: item.settings.paperFormat, colorMode: item.settings.colorMode }, pageOverrides: item.settings.printKind === "document" ? item.settings.pageOverrides : {} };
+      const result = priceOrderItem({ kind: item.settings.printKind, pageCount: item.pageCount, settings, extras: item.settings.extras });
+      return { ...item, settings: { ...item.settings, printSides: settings.printSides, pageOverrides: settings.pageOverrides, extras: result.extras }, ...result };
     });
 
     const totalPrice = pricedItems.reduce(
@@ -801,7 +715,7 @@ export async function POST(request: Request) {
       pricedItems.map((item) => ({
         kind: item.settings.printKind,
         pageCount: item.pageCount,
-        copies: item.settings.copies,
+        copies: item.settings.printKind === "document" ? item.settings.copies : item.pricing.quantity,
         printSides: item.settings.printSides,
         paperFormat: item.settings.paperFormat,
         pageOverrides: item.settings.pageOverrides,
@@ -943,7 +857,7 @@ export async function POST(request: Request) {
             item.pricing.sidesMultiplier,
             /* item_total включает доп. опции: это сумма позиции в заказе. */
             item.pricing.totalPrice + item.extrasPricing.total,
-            JSON.stringify(item.settings.extras),
+            JSON.stringify({ ...item.settings.extras, printKind: item.settings.printKind, colorMode: item.settings.colorMode }),
           ]
         );
       }

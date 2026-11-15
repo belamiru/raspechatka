@@ -36,6 +36,12 @@ type OrderFile = {
     backCover: string;
     staple: string;
     photoFit?: string;
+    photoFormat?: string;
+    printKind?: string;
+    colorMode?: string;
+    posterPaper?: string;
+    posterWidthMm?: number;
+    posterHeightMm?: number;
   } | null;
 };
 
@@ -174,6 +180,10 @@ function getPrintExtrasLines(extras: OrderFile["printExtras"]) {
   if (!extras) return [];
 
   const lines: string[] = [];
+  if (extras.printKind) lines.push(`Тип печати: ${{ document: "документ", photo: "фото", poster: "плакат" }[extras.printKind] ?? extras.printKind}`);
+  if (extras.printKind === "document" && extras.colorMode) lines.push(`Цвет: ${extras.colorMode === "color" ? "цветная" : "чёрно-белая"}`);
+  if (extras.printKind === "photo" && extras.photoFormat) lines.push(`Формат фото: ${extras.photoFormat}`);
+  if (extras.printKind === "poster") lines.push(`Материал: ${extras.posterPaper ?? "—"}; размер: ${extras.posterWidthMm ?? "—"} × ${extras.posterHeightMm ?? "—"} мм`);
 
   if (extras.paper !== "80") lines.push(`Бумага ${extras.paper} г/м²`);
   if (extras.lamination !== "none") {
@@ -199,9 +209,9 @@ function getPrintExtrasLines(extras: OrderFile["printExtras"]) {
   if (extras.staple !== "none") {
     lines.push(`Степлер: ${extras.staple === "left" ? "левый угол" : "правый угол"}`);
   }
-  if (extras.photoFit === "contain") {
+  if ((!extras.printKind || extras.printKind === "photo") && extras.photoFit === "contain") {
     lines.push("Кадр: вписан целиком, с белыми полями");
-  } else if (extras.photoFit === "crop") {
+  } else if ((!extras.printKind || extras.printKind === "photo") && extras.photoFit === "crop") {
     lines.push("Кадр: заполнен с обрезкой краёв");
   }
 
@@ -592,7 +602,7 @@ export default function AdminOrders({
                               </div>
 
                               <p className="mt-2 text-sm text-slate-600">
-                                Файл {index + 1} · {file.paperFormat} · {file.pageCount} стр. ·{" "}
+                                Файл {index + 1} · {file.printExtras?.printKind === "photo" ? `фото ${file.printExtras.photoFormat ?? "10x15"}` : file.printExtras?.printKind === "poster" ? "плакат" : file.paperFormat} · {file.pageCount} стр. ·{" "}
                                 {getPhysicalSheetCount({
                                   pageCount: file.printablePageCount,
                                   copies: file.copies,

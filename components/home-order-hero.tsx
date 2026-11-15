@@ -1,5 +1,8 @@
 "use client";
 
+import { priceOrderItem, extrasForKind, type OrderPrintKind } from "@/lib/order-item-pricing";
+import { DEFAULT_PRINT_EXTRA_OPTIONS, type PaperDensity } from "@/lib/print-extras";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
@@ -13,11 +16,9 @@ import {
 import { reachMetrikaGoal } from "@/lib/metrika";
 import { setPendingHelpMode, setPendingOrderFiles } from "@/lib/pending-order-files";
 import {
-  getPhotoPriceForCount,
   getPosterPaper,
-  getPosterPrice,
-  getPrintPriceForPages,
   getRequiredPixels,
+  validatePosterSize,
   POSTER_FORMATS,
   POSTER_PAPERS,
   PHOTO_FORMATS,
@@ -96,6 +97,7 @@ function Spinner({ className = "" }: { className?: string }) {
 
 export function HomeOrderHero() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const categoryManuallyChosen = useRef(false);
   const [category, setCategory] = useState<CategoryId>("documents");
   const [uploaded, setUploaded] = useState<UploadedFile | null>(null);
   const [paperFormat, setPaperFormat] = useState<PaperFormat>("A4");
@@ -103,7 +105,7 @@ export function HomeOrderHero() {
   const [printSides, setPrintSides] = useState<PrintSides>("one-sided");
   /* По умолчанию одна копия: заказчик чаще печатает один экземпляр. */
   const [copies, setCopies] = useState(1);
-  const [paper, setPaper] = useState<string>("80");
+  const [paper, setPaper] = useState<PaperDensity>("80");
   /* Как вписать снимок в фотобумагу: заполнить кадр или оставить белые поля. */
   const [photoFit, setPhotoFit] = useState<"crop" | "contain">("crop");
   const [photoFormat, setPhotoFormat] = useState<PhotoFormat>("10x15");
@@ -136,29 +138,14 @@ export function HomeOrderHero() {
   const isPhotoMode = category === "photo";
   const isPosterMode = category === "large-format";
 
-  /*
-   * Для изображений формат фиксирован на A4, поэтому и цена, и то, что уходит
-   * на сервер, должны совпадать — используем одно значение.
-   */
-  const effectivePaperFormat: PaperFormat = isImage ? "A4" : paperFormat;
-
-  /* Фотографии считаются по числу отпечатков 10×15, а не по страницам A4. */
-  const totalPrice = !isReady
-    ? 0
-    : isPosterMode
-      ? getPosterPrice({
-          widthMm: posterWidthMm,
-          heightMm: posterHeightMm,
-          pricePerSqm: getPosterPaper(posterPaper).pricePerSqm,
-          copies,
-        }).totalPrice
-      : isImage
-      ? getPhotoPriceForCount(copies, photoFormat).totalPrice
-      : getPrintPriceForPages({
-          pageOptions: Array.from({ length: pageCount }, () => ({ paperFormat: effectivePaperFormat, colorMode })),
-          printSides,
-          copies,
-        }).totalPrice;
+  const effectivePaperFormat: PaperFormat = paperFormat;
+  const printKind: OrderPrintKind = isPosterMode ? "poster" : isPhotoMode ? "photo" : "document";
+  const heroSettings = { copies, printSides: printKind === "document" ? printSides : "one-sided" as const,
+    defaults: { paperFormat, colorMode }, pageOverrides: {} };
+  const heroExtras = extrasForKind(printKind, { ...DEFAULT_PRINT_EXTRA_OPTIONS, paper, photoFormat, photoFit,
+    posterPaper, posterFormat, posterWidthMm, posterHeightMm });
+  const heroPricing = isReady ? priceOrderItem({ kind: printKind, pageCount, settings: heroSettings, extras: heroExtras }) : null;
+  const totalPrice = heroPricing ? heroPricing.pricing.totalPrice + heroPricing.extrasPricing.total : 0;
 
   async function handleFiles(file: File | null) {
     if (!file) return;
@@ -181,6 +168,9 @@ export function HomeOrderHero() {
       return;
     }
 
+    if (!categoryManuallyChosen.current) setCategory(validation.kind === "image" ? "photo" : "documents");
+    setHelpError("");
+    if (validation.kind === "image") setPrintSides("one-sided");
     setUploaded({
       id: makeFileId(),
       file,
@@ -249,11 +239,11 @@ export function HomeOrderHero() {
         previewUrl: null,
         printSettings: {
           copies,
-          printSides: uploaded.kind === "image" ? "one-sided" : printSides,
+          printSides: heroSettings.printSides,
           defaults: { paperFormat: effectivePaperFormat, colorMode },
           pageOverrides: {},
         },
-        printExtras: { photoFormat, photoFit, posterPaper, posterFormat, posterWidthMm, posterHeightMm },
+        printKind, printExtras: { paper, photoFormat, photoFit, posterPaper, posterFormat, posterWidthMm, posterHeightMm },
       },
     ]);
     setPendingHelpMode(true);
@@ -268,6 +258,10 @@ export function HomeOrderHero() {
       return;
     }
 
+    if (printKind === "poster") {
+      const validation = validatePosterSize({ widthMm: posterWidthMm, heightMm: posterHeightMm, maxWidthMm: getPosterPaper(posterPaper).maxWidthMm });
+      if (!validation.valid) { setFormError(validation.error); return; }
+    }
     if (!personalDataConsent) {
       setFormError("Для оформления заказа необходимо согласие на обработку персональных данных.");
       return;
@@ -308,12 +302,11 @@ export function HomeOrderHero() {
           {
             fileId: uploaded.id,
             copies,
-            printSides: uploaded.kind === "image" ? "one-sided" : printSides,
-            defaults: {
-              paperFormat: effectivePaperFormat,
-              colorMode,
-            },
+            printSides: heroSettings.printSides,
+            defaults: heroSettings.defaults,
             pageOverrides: {},
+            printKind,
+            extras: heroExtras,
           },
         ])
       );
@@ -419,7 +412,7 @@ export function HomeOrderHero() {
                     type="button"
                     disabled={!tab.available}
                     aria-pressed={isActive}
-                    onClick={() => setCategory(tab.id)}
+                    onClick={() => { categoryManuallyChosen.current = true; setCategory(tab.id); }}
                     className={`shrink-0 whitespace-nowrap rounded-t-lg px-3 pb-3 pt-1 text-sm font-semibold transition ${
                       isActive
                         ? "border-b-2 border-blue-600 text-blue-700"
@@ -546,6 +539,7 @@ export function HomeOrderHero() {
                 )}
               </div>
 
+              {uploaded?.kind === "document" && (isPhotoMode || isPosterMode) && (uploaded.pages ?? 0) > 1 && <p className="text-sm text-slate-600">Каждая страница файла печатается отдельно; количество применяется к каждой странице.</p>}
               {isPosterMode ? (
                 <>
                   <div>
@@ -762,6 +756,7 @@ export function HomeOrderHero() {
                             key={value}
                             type="button"
                             aria-pressed={isSelected}
+                            disabled={isImage && value === "two-sided"}
                             onClick={() => setPrintSides(value)}
                             className={`rounded-lg px-2 py-2 text-sm font-bold transition ${
                               isSelected ? "bg-white text-blue-700 shadow-sm ring-1 ring-blue-200" : "text-slate-600 hover:text-slate-900"
@@ -776,7 +771,7 @@ export function HomeOrderHero() {
 
                   <div className="grid grid-cols-2 gap-2">
                     <label className="sr-only" htmlFor="hero-paper">Бумага</label>
-                    <select id="hero-paper" value={paper} onChange={(event) => setPaper(event.target.value)} className={controlClass}>
+                    <select id="hero-paper" value={paper} onChange={(event) => setPaper(event.target.value as PaperDensity)} className={controlClass}>
                       {PAPER_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
@@ -894,7 +889,7 @@ export function HomeOrderHero() {
                     </button>
                     <Link href="/order" onClick={() => {
                       if (uploaded && uploaded.status === "ready" && uploaded.pages) {
-                        setPendingOrderFiles([{ id: makeFileId(), file: uploaded.file, kind: uploaded.kind, pageCount: uploaded.pages, draftId: uploaded.draftId, previewUrl: null, printSettings: { copies, printSides: uploaded.kind === "image" ? "one-sided" : printSides, defaults: { paperFormat: effectivePaperFormat, colorMode }, pageOverrides: {} }, printExtras: { photoFormat, photoFit, posterPaper, posterFormat, posterWidthMm, posterHeightMm } }]);
+                        setPendingOrderFiles([{ id: makeFileId(), file: uploaded.file, kind: uploaded.kind, pageCount: uploaded.pages, draftId: uploaded.draftId, previewUrl: null, printSettings: { copies, printSides: heroSettings.printSides, defaults: { paperFormat: effectivePaperFormat, colorMode }, pageOverrides: {} }, printKind, printExtras: { paper, photoFormat, photoFit, posterPaper, posterFormat, posterWidthMm, posterHeightMm } }]);
                       } else setPendingOrderFiles([]);
                     }} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
                       Настроить доп. опции
@@ -929,9 +924,11 @@ export function HomeOrderHero() {
                     pageCount: uploaded.pages,
                     draftId: uploaded.draftId,
                     previewUrl: null,
+                    printKind,
+                    printExtras: { paper, photoFormat, photoFit, posterPaper, posterFormat, posterWidthMm, posterHeightMm },
                     printSettings: {
                       copies,
-                      printSides: uploaded.kind === "image" ? "one-sided" : printSides,
+                      printSides: heroSettings.printSides,
                       defaults: { paperFormat: effectivePaperFormat, colorMode },
                       pageOverrides: {},
                     },

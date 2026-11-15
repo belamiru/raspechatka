@@ -1,5 +1,7 @@
 "use client";
 
+import { priceOrderItem, extrasForKind } from "@/lib/order-item-pricing";
+
 /*
  * Сюда временно перенесена прежняя форма оформления заказа с главной.
  * Когда появится новый дизайн страницы заказа, этот файл заменится.
@@ -23,7 +25,7 @@ import {
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { reachMetrikaGoal } from "@/lib/metrika";
-import { getPhotoPriceForCount, getPrintPriceForPages, PHOTO_FORMATS } from "@/lib/pricing";
+import { PHOTO_FORMATS } from "@/lib/pricing";
 import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageOptions } from "@/lib/print-settings";
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
 import {
@@ -33,7 +35,6 @@ import {
   type PrintExtraOptions,
   DEFAULT_PRINT_EXTRA_OPTIONS,
 } from "@/components/file-print-options";
-import { getExtrasPrice, getPosterExtrasPrice } from "@/lib/print-extras";
 import { getPosterPaper, validatePosterSize } from "@/lib/pricing";
 import { FreeDeliveryProgress } from "@/components/free-delivery-progress";
 import { takePendingHelpMode, takePendingOrderFiles } from "@/lib/pending-order-files";
@@ -132,111 +133,16 @@ export default function Home() {
    * Для изображений режим всегда односторонний — даже если браузерный
    * запрос был бы искусственно изменён.
    */
-  const itemPricings = useMemo(
-    () =>
-      readyFiles.map((file) => {
-        const settings = file.printSettings ?? DEFAULT_PRINT_SETTINGS;
+  const itemPricings = useMemo(() => readyFiles.map((file) => {
+    const settings = file.printSettings ?? DEFAULT_PRINT_SETTINGS;
+    const kind = printKinds[file.id] ?? (file.kind === "image" ? "photo" : "document");
+    return { file, ...priceOrderItem({ kind, pageCount: file.pageCount ?? 0, settings,
+      extras: printExtras[file.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS }) };
+  }), [readyFiles, printExtras, printKinds]);
 
-        /*
-         * Фотографии печатаются на фотобумаге 10×15 и считаются по числу
-         * отпечатков, а не по страницам A4 — прайс у фотопечати свой.
-         */
-        /*
-         * Плакаты считаются по площади и материалу — это не надбавка,
-         * а сама цена печати, поэтому она заменяет базовую.
-         */
-        const posterKind = printKinds[file.id] === "poster";
-
-        if (posterKind) {
-          const extras = printExtras[file.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS;
-          const posterPricing = getPosterExtrasPrice({
-            posterPaper: extras.posterPaper,
-            posterFormat: extras.posterFormat,
-            posterWidthMm: extras.posterWidthMm,
-            posterHeightMm: extras.posterHeightMm,
-            copies: settings.copies,
-          });
-
-          return {
-            file,
-            pricing: {
-              ...getPrintPriceForPages({
-                pageOptions: [{ paperFormat: settings.defaults.paperFormat, colorMode: settings.defaults.colorMode }],
-                printSides: "one-sided",
-                copies: settings.copies,
-              }),
-              totalPrice: posterPricing.totalPrice,
-              quantity: posterPricing.copies,
-              physicalSheetQuantity: posterPricing.copies,
-              sheetsPerCopy: 1,
-            },
-          };
-        }
-
-        if (file.kind === "image") {
-          const photoPricing = getPhotoPriceForCount(
-            settings.copies,
-            (printExtras[file.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS).photoFormat
-          );
-
-          return {
-            file,
-            pricing: {
-              ...getPrintPriceForPages({
-                pageOptions: [{ paperFormat: settings.defaults.paperFormat, colorMode: settings.defaults.colorMode }],
-                printSides: "one-sided",
-                copies: settings.copies,
-              }),
-              totalPrice: photoPricing.totalPrice,
-              quantity: photoPricing.quantity,
-              physicalSheetQuantity: photoPricing.quantity,
-              sheetsPerCopy: 1,
-            },
-          };
-        }
-
-        return {
-          file,
-          pricing: getPrintPriceForPages({
-            pageOptions: getPrintablePageOptions(file.pageCount ?? 0, settings),
-            printSides: settings.printSides,
-            copies: settings.copies,
-          }),
-        };
-      }),
-    [readyFiles, printExtras, printKinds]
-  );
-
-  /*
-   * Доп. опции считаются на файл: бумага даёт процент от цены печати,
-   * ламинация — за физический лист, переплёт и обложки — за документ.
-   */
-  const extrasPricings = useMemo(
-    () =>
-      readyFiles.map((file) => {
-        const settings = file.printSettings ?? DEFAULT_PRINT_SETTINGS;
-        const pdfPages = file.pageCount ?? 0;
-
-        return {
-          fileId: file.id,
-          price: getExtrasPrice({
-            /* У фотобумаги своя цена за отпечаток, надбавка за плотность к ней не применяется. */
-            extras:
-              file.kind === "image" || printKinds[file.id] === "poster"
-                ? { ...(printExtras[file.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS), paper: "80" }
-                : printExtras[file.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS,
-            pageOptions: file.kind === "document"
-              ? getPrintablePageOptions(pdfPages, settings)
-              : [{ paperFormat: settings.defaults.paperFormat, colorMode: settings.defaults.colorMode }],
-            printSides: file.kind === "image" ? "one-sided" : settings.printSides,
-            copies: settings.copies,
-            printPrice:
-              itemPricings.find((item) => item.file.id === file.id)?.pricing.totalPrice ?? 0,
-          }),
-        };
-      }),
-    [readyFiles, printExtras, itemPricings]
-  );
+  const extrasPricings = useMemo(() => itemPricings.map(({file, extrasPricing}) => ({
+    fileId: file.id, price: extrasPricing,
+  })), [itemPricings]);
 
   const extrasPriceById = useMemo(
     () => Object.fromEntries(extrasPricings.map((item) => [item.fileId, item.price])),
@@ -324,10 +230,7 @@ export default function Home() {
             /*
              * Изображения никогда не отправляем на двустороннюю печать.
              */
-            printSides:
-              file.kind === "image"
-                ? "one-sided"
-                : nextSettings.printSides,
+            printSides: file.kind === "image" ? "one-sided" : nextSettings.printSides,
           },
         };
       })
@@ -342,8 +245,7 @@ export default function Home() {
         ...file,
         printSettings: {
           ...settings,
-          printSides:
-            file.kind === "image" ? "one-sided" : settings.printSides,
+          printSides: file.kind === "image" ? "one-sided" : settings.printSides,
         },
       }))
     );
@@ -544,6 +446,7 @@ export default function Home() {
      * Опции, выбранные на главной, переносим в состояние заказа: иначе
      * фотография приедет с форматом по умолчанию и ценой как за 10×15.
      */
+    setPrintKinds((current) => ({ ...current, ...Object.fromEntries(pending.filter(item => item.printKind).map(item => [item.id, item.printKind!])) }));
     const extrasFromHome = Object.fromEntries(
       pending
         .filter((item) => item.printExtras)
@@ -551,6 +454,7 @@ export default function Home() {
           item.id,
           {
             ...DEFAULT_PRINT_EXTRA_OPTIONS,
+            paper: item.printExtras!.paper ?? "80",
             photoFormat: item.printExtras!.photoFormat,
             photoFit: item.printExtras!.photoFit,
             posterPaper: item.printExtras!.posterPaper,
@@ -703,11 +607,11 @@ export default function Home() {
           readyFiles.map((item) => ({
             fileId: item.id,
             copies: item.printSettings?.copies ?? 1,
-            printSides: item.kind === "image" ? "one-sided" : (item.printSettings?.printSides ?? "one-sided"),
+            printSides: (printKinds[item.id] ?? (item.kind === "image" ? "photo" : "document")) === "document" ? (item.printSettings?.printSides ?? "one-sided") : "one-sided",
             defaults: item.printSettings?.defaults ?? DEFAULT_PRINT_SETTINGS.defaults,
-            pageOverrides: item.kind === "document" ? (item.printSettings?.pageOverrides ?? {}) : {},
+            pageOverrides: item.kind === "document" && (printKinds[item.id] ?? "document") === "document" ? (item.printSettings?.pageOverrides ?? {}) : {},
             /* Доп. опции уходят на сервер: сумму пересчитывает он, а не браузер. */
-            extras: printExtras[item.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS,
+            extras: extrasForKind(printKinds[item.id] ?? (item.kind === "image" ? "photo" : "document"), printExtras[item.id] ?? DEFAULT_PRINT_EXTRA_OPTIONS),
             printKind: printKinds[item.id] ?? (item.kind === "image" ? "photo" : "document"),
           }))
         )
@@ -888,6 +792,7 @@ export default function Home() {
                       }
                     />
 
+                    {item.kind === "document" && printKind !== "document" && (item.pageCount ?? 0) > 1 && <p className="text-sm text-slate-600">В этом режиме печатаются все страницы файла: каждая страница — отдельный {printKind === "photo" ? "фотоотпечаток" : "плакат"}, количество применяется к каждой странице.</p>}
                     <PrintSettingsPanel
                       variant="inline"
                       photoMode={printKind === "photo"}
@@ -904,7 +809,7 @@ export default function Home() {
                         onChange={(nextExtras) =>
                           setPrintExtras((current) => ({ ...current, [item.id]: nextExtras }))
                         }
-                        copies={item.printSettings?.copies ?? 1}
+                        copies={(item.printSettings?.copies ?? 1) * (item.pageCount ?? 1)}
                         imagePixels={item.imagePixels ?? null}
                       />
                     ) : (

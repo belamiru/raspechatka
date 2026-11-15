@@ -21,11 +21,13 @@ export type PendingOrderFile = {
   draftId: string | null;
   previewUrl: string | null;
   printSettings: FilePrintSettings;
+  printKind?: "document" | "photo" | "poster";
   /*
    * Опции, выбранные в виджете на главной. Сервер посчитает заказ по ним же,
    * поэтому терять их при переходе нельзя.
    */
   printExtras?: {
+    paper?: "80" | "120" | "250";
     photoFormat: "10x15" | "A5" | "A4" | "A3";
     photoFit: "crop" | "contain";
     posterPaper: "vatman-120" | "lokipix-135" | "lokipix-200" | "pvc-80";

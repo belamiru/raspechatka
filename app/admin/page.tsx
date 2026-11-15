@@ -62,6 +62,12 @@ function normalizePrintExtras(raw: Record<string, unknown> | null) {
     backCover: typeof extras.backCover === "string" ? extras.backCover : "transparent",
     staple: typeof extras.staple === "string" ? extras.staple : "none",
     photoFit: typeof extras.photoFit === "string" ? extras.photoFit : undefined,
+    photoFormat: typeof extras.photoFormat === "string" ? extras.photoFormat : undefined,
+    printKind: typeof extras.printKind === "string" ? extras.printKind : undefined,
+    colorMode: typeof extras.colorMode === "string" ? extras.colorMode : undefined,
+    posterPaper: typeof extras.posterPaper === "string" ? extras.posterPaper : undefined,
+    posterWidthMm: typeof extras.posterWidthMm === "number" ? extras.posterWidthMm : undefined,
+    posterHeightMm: typeof extras.posterHeightMm === "number" ? extras.posterHeightMm : undefined,
   };
 }
 
