@@ -6,10 +6,61 @@ export type OrderPrintKind = "document" | "photo" | "poster";
 
 // Hidden options from the previous mode must never silently affect a new mode.
 export function extrasForKind(kind: OrderPrintKind, extras: PrintExtraOptions): PrintExtraOptions {
-  if (kind === "document") return extras;
+  if (kind === "document") {
+    return {
+      ...DEFAULT_PRINT_EXTRA_OPTIONS,
+      paper: extras.paper,
+      lamination: extras.lamination,
+      laminationThickness: extras.laminationThickness,
+      binding: extras.binding,
+      coverSet: extras.coverSet,
+      frontCover: extras.frontCover,
+      backCover: extras.backCover,
+      staple: extras.staple,
+    };
+  }
   if (kind === "photo") return { ...DEFAULT_PRINT_EXTRA_OPTIONS, photoFormat: extras.photoFormat, photoFit: extras.photoFit };
   return { ...DEFAULT_PRINT_EXTRA_OPTIONS, posterPaper: extras.posterPaper, posterFormat: extras.posterFormat,
     posterWidthMm: extras.posterWidthMm, posterHeightMm: extras.posterHeightMm };
+}
+
+/** Persist only options that belong to the selected print mode. */
+export function serializeOrderExtras(
+  kind: OrderPrintKind,
+  extras: PrintExtraOptions,
+  colorMode: "black-and-white" | "color"
+) {
+  const selected = extrasForKind(kind, extras);
+
+  if (kind === "photo") {
+    return { printKind: kind, colorMode, photoFormat: selected.photoFormat, photoFit: selected.photoFit };
+  }
+
+  if (kind === "poster") {
+    return {
+      printKind: kind,
+      colorMode,
+      posterPaper: selected.posterPaper,
+      posterFormat: selected.posterFormat,
+      posterWidthMm: selected.posterWidthMm,
+      posterHeightMm: selected.posterHeightMm,
+      lamination: selected.lamination,
+      laminationThickness: selected.laminationThickness,
+    };
+  }
+
+  return {
+    printKind: kind,
+    colorMode,
+    paper: selected.paper,
+    lamination: selected.lamination,
+    laminationThickness: selected.laminationThickness,
+    binding: selected.binding,
+    coverSet: selected.coverSet,
+    frontCover: selected.frontCover,
+    backCover: selected.backCover,
+    staple: selected.staple,
+  };
 }
 
 export function priceOrderItem({ kind, pageCount, settings, extras }: {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { priceOrderItem, extrasForKind } from "../lib/order-item-pricing";
+import { priceOrderItem, extrasForKind, serializeOrderExtras } from "../lib/order-item-pricing";
 import { DEFAULT_PRINT_SETTINGS, type FilePrintSettings } from "../lib/print-settings";
 import { DEFAULT_PRINT_EXTRA_OPTIONS } from "../lib/print-extras";
 
@@ -20,6 +20,13 @@ assert.equal(poster.pricing.totalPrice, price("poster", 1).pricing.totalPrice * 
 const stale = { ...DEFAULT_PRINT_EXTRA_OPTIONS, paper: "250" as const, binding: true, staple: "left" as const, photoFormat: "A3" as const };
 assert.equal(extrasForKind("photo", stale).binding, false);
 assert.equal(price("photo", 1, stale).extrasPricing.total, 0);
+const documentExtras = serializeOrderExtras("document", stale, "black-and-white");
+assert.equal("photoFit" in documentExtras, false);
+assert.equal("photoFormat" in documentExtras, false);
+assert.equal(documentExtras.printKind, "document");
+const photoExtras = serializeOrderExtras("photo", stale, "color");
+assert.equal("paper" in photoExtras, false);
+assert.equal(photoExtras.photoFormat, "A3");
 const excluded = { ...settings, pageOverrides: { 1: { pageNumber: 1, included: false } } };
 assert.equal(price("document", 2, DEFAULT_PRINT_EXTRA_OPTIONS, excluded).printablePages, 1);
 assert.equal(price("photo", 2, DEFAULT_PRINT_EXTRA_OPTIONS, excluded).printablePages, 2);

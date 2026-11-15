@@ -185,34 +185,24 @@ function getPrintExtrasLines(extras: OrderFile["printExtras"]) {
   if (extras.printKind === "photo" && extras.photoFormat) lines.push(`Формат фото: ${extras.photoFormat}`);
   if (extras.printKind === "poster") lines.push(`Материал: ${extras.posterPaper ?? "—"}; размер: ${extras.posterWidthMm ?? "—"} × ${extras.posterHeightMm ?? "—"} мм`);
 
-  if (extras.paper !== "80") lines.push(`Бумага ${extras.paper} г/м²`);
-  if (extras.lamination !== "none") {
-    const type = extras.lamination === "matte" ? "матовая" : "глянцевая";
-    lines.push(`Ламинация ${type} ${extras.laminationThickness} мкр`);
+  if (!extras.printKind || extras.printKind === "document") {
+    if (extras.paper !== "80") lines.push(`Бумага ${extras.paper} г/м²`);
+    if (extras.lamination !== "none") {
+      const type = extras.lamination === "matte" ? "матовая" : "глянцевая";
+      lines.push(`Ламинация ${type} ${extras.laminationThickness} мкм`);
+    }
+    if (extras.binding) {
+      const front = extras.frontCover === "leather" ? "тиснение" : "прозрачная";
+      const back = extras.backCover === "leather" ? "тиснение" : "прозрачная";
+      const coverSet = extras.coverSet === "both" ? `передняя: ${front} · задняя: ${back}`
+        : extras.coverSet === "front" ? `передняя: ${front}`
+        : extras.coverSet === "back" ? `задняя: ${back}` : "без обложек";
+      lines.push(`Переплёт на пружину · ${coverSet}`);
+    }
+    if (extras.staple !== "none") lines.push(`Степлер: ${extras.staple === "left" ? "левый угол" : "правый угол"}`);
   }
-  if (extras.binding) {
-    const front = extras.frontCover === "leather" ? "тиснение" : "прозрачная";
-    const back = extras.backCover === "leather" ? "тиснение" : "прозрачная";
-
-    /* Набор обложек: их может не быть, быть одна или обе. */
-    const coverSet =
-      extras.coverSet === "both"
-        ? `передняя: ${front} · задняя: ${back}`
-        : extras.coverSet === "front"
-          ? `передняя: ${front}`
-          : extras.coverSet === "back"
-            ? `задняя: ${back}`
-            : "без обложек";
-
-    lines.push(`Переплёт на пружину · ${coverSet}`);
-  }
-  if (extras.staple !== "none") {
-    lines.push(`Степлер: ${extras.staple === "left" ? "левый угол" : "правый угол"}`);
-  }
-  if ((!extras.printKind || extras.printKind === "photo") && extras.photoFit === "contain") {
-    lines.push("Кадр: вписан целиком, с белыми полями");
-  } else if ((!extras.printKind || extras.printKind === "photo") && extras.photoFit === "crop") {
-    lines.push("Кадр: заполнен с обрезкой краёв");
+  if (extras.printKind === "photo") {
+    lines.push(extras.photoFit === "contain" ? "Кадр: вписан целиком, с белыми полями" : "Кадр: заполнен с обрезкой краёв");
   }
 
   return lines;

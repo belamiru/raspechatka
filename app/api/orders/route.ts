@@ -1,4 +1,4 @@
-import { priceOrderItem } from "@/lib/order-item-pricing";
+import { priceOrderItem, serializeOrderExtras } from "@/lib/order-item-pricing";
 import { createHelpModeOrder } from "@/lib/help-mode-order";
 import { cookies } from "next/headers";
 import { ensureOrderCheckoutSchema, ORDER_GUEST_COOKIE, ORDER_GUEST_MAX_AGE, validGuestToken, newGuestToken, hashGuestToken } from "@/lib/order-checkout";
@@ -857,7 +857,7 @@ export async function POST(request: Request) {
             item.pricing.sidesMultiplier,
             /* item_total включает доп. опции: это сумма позиции в заказе. */
             item.pricing.totalPrice + item.extrasPricing.total,
-            JSON.stringify({ ...item.settings.extras, printKind: item.settings.printKind, colorMode: item.settings.colorMode }),
+            JSON.stringify(serializeOrderExtras(item.settings.printKind, item.settings.extras, item.settings.colorMode)),
           ]
         );
       }
