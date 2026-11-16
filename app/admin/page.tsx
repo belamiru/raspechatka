@@ -63,6 +63,7 @@ function normalizePrintExtras(raw: Record<string, unknown> | null) {
     staple: typeof extras.staple === "string" ? extras.staple : "none",
     photoFit: typeof extras.photoFit === "string" ? extras.photoFit : undefined,
     photoFormat: typeof extras.photoFormat === "string" ? extras.photoFormat : undefined,
+    photoSurface: extras.photoSurface === "gloss" || extras.photoSurface === "matte" ? extras.photoSurface : null,
     printKind: typeof extras.printKind === "string" ? extras.printKind : undefined,
     colorMode: typeof extras.colorMode === "string" ? extras.colorMode : undefined,
     posterPaper: typeof extras.posterPaper === "string" ? extras.posterPaper : undefined,

@@ -227,7 +227,7 @@ export function PrintExtrasOptions({
   /* Расчёт стоимости доп. опций для этого файла; null, пока файл не готов. */
   price: ExtrasPriceBreakdown | null;
 }) {
-  const { paper, lamination, laminationThickness, binding, coverSet, frontCover, backCover, staple, photoFit, photoFormat } = value;
+  const { paper, lamination, laminationThickness, binding, coverSet, frontCover, backCover, staple, photoFit, photoFormat, photoSurface } = value;
 
   function change(changes: Partial<PrintExtraOptions>) {
     onChange({ ...value, ...changes });
@@ -419,10 +419,18 @@ export function PrintExtrasOptions({
             }))}
           />
 
-          <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900">
-            Фотобумага: матовая или глянцевая — цена одинаковая, выберите при оформлении.
-            Итоговая стоимость зависит от количества отпечатков.
-          </p>
+          <div className="mt-4">
+            <ChoiceRow
+              label="Поверхность фотобумаги"
+              hint="Матовая и глянцевая фотобумага стоят одинаково."
+              value={photoSurface ?? "gloss"}
+              onChange={(next) => change({ photoSurface: next })}
+              options={[
+                { value: "gloss", label: "Глянцевая" },
+                { value: "matte", label: "Матовая" },
+              ]}
+            />
+          </div>
         </div>
       )}
 

@@ -49,8 +49,8 @@ export const metadata: Metadata = {
       "max-video-preview": -1,
     },
   },
-    verification: {
-    yandex: "2120bc28c6cc59ef",
+  verification: {
+    yandex: "88cd57dadcf3d57f",
   },
 };
 

@@ -30,6 +30,7 @@ export type PendingOrderFile = {
     paper?: "80" | "120" | "250";
     photoFormat: "10x15" | "A5" | "A4" | "A3";
     photoFit: "crop" | "contain";
+    photoSurface?: "gloss" | "matte";
     posterPaper: "vatman-120" | "lokipix-135" | "lokipix-200" | "pvc-80";
     posterFormat: "A2" | "A1" | "A0" | "custom";
     posterWidthMm: number;

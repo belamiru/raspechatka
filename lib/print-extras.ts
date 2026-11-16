@@ -30,6 +30,7 @@ export type CoverSet = "none" | "front" | "back" | "both";
 
 /* Как вписать снимок в лист фотобумаги. */
 export type PhotoFit = "crop" | "contain";
+export type PhotoSurface = "gloss" | "matte";
 
 export type { PhotoFormat } from "@/lib/pricing";
 export type { PosterFormat, PosterPaperId } from "@/lib/pricing";
@@ -46,6 +47,7 @@ export type PrintExtraOptions = {
   staple: StapleSide;
   /* Влияет только на фотопечать, для документов игнорируется. */
   photoFit: PhotoFit;
+  photoSurface: PhotoSurface | null;
   /* Формат фотобумаги: 10×15, A5, A4 или A3. Тоже только для фотопечати. */
   photoFormat: PhotoFormat;
 
@@ -66,6 +68,7 @@ export const DEFAULT_PRINT_EXTRA_OPTIONS: PrintExtraOptions = {
   backCover: "transparent",
   staple: "none",
   photoFit: "crop",
+  photoSurface: "gloss",
   photoFormat: "10x15",
   posterPaper: "lokipix-135",
   posterFormat: "A2",

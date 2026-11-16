@@ -457,6 +457,7 @@ export default function Home() {
             paper: item.printExtras!.paper ?? "80",
             photoFormat: item.printExtras!.photoFormat,
             photoFit: item.printExtras!.photoFit,
+            photoSurface: item.printExtras!.photoSurface ?? "gloss",
             posterPaper: item.printExtras!.posterPaper,
             posterFormat: item.printExtras!.posterFormat,
             posterWidthMm: item.printExtras!.posterWidthMm,

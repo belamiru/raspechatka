@@ -37,6 +37,7 @@ type OrderFile = {
     staple: string;
     photoFit?: string;
     photoFormat?: string;
+    photoSurface?: string | null;
     printKind?: string;
     colorMode?: string;
     posterPaper?: string;
@@ -202,6 +203,7 @@ function getPrintExtrasLines(extras: OrderFile["printExtras"]) {
     if (extras.staple !== "none") lines.push(`Степлер: ${extras.staple === "left" ? "левый угол" : "правый угол"}`);
   }
   if (extras.printKind === "photo") {
+    lines.push(`Фотобумага: ${extras.photoSurface === "gloss" ? "глянцевая" : extras.photoSurface === "matte" ? "матовая" : "не указана — уточнить у клиента"}`);
     lines.push(extras.photoFit === "contain" ? "Кадр: вписан целиком, с белыми полями" : "Кадр: заполнен с обрезкой краёв");
   }
 

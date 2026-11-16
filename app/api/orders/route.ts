@@ -186,7 +186,7 @@ function textValue(formData: FormData, name: string) {
 function parseExtras(rawValue: unknown): PrintExtraOptions | null {
   /* Старые вкладки могут не присылать блок — считаем настройки базовыми. */
   if (rawValue === undefined || rawValue === null) {
-    return DEFAULT_PRINT_EXTRA_OPTIONS;
+    return { ...DEFAULT_PRINT_EXTRA_OPTIONS, photoSurface: null };
   }
 
   if (typeof rawValue !== "object" || Array.isArray(rawValue)) {
@@ -204,6 +204,8 @@ function parseExtras(rawValue: unknown): PrintExtraOptions | null {
   const coverSet = value.coverSet;
   const photoFit = value.photoFit;
   const photoFormat = value.photoFormat;
+  const photoSurface = value.photoSurface;
+  if (photoSurface !== undefined && photoSurface !== null && photoSurface !== "gloss" && photoSurface !== "matte") return null;
 
   if (paper !== "80" && paper !== "120" && paper !== "250") return null;
   if (lamination !== "none" && lamination !== "matte" && lamination !== "gloss") return null;
@@ -262,6 +264,7 @@ function parseExtras(rawValue: unknown): PrintExtraOptions | null {
     backCover,
     staple,
     photoFit: normalizedPhotoFit,
+    photoSurface: photoSurface === "gloss" || photoSurface === "matte" ? photoSurface : null,
     photoFormat: normalizedPhotoFormat,
     posterPaper: normalizedPosterPaper,
     posterFormat: normalizedPosterFormat,

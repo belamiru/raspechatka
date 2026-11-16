@@ -19,7 +19,7 @@ export function extrasForKind(kind: OrderPrintKind, extras: PrintExtraOptions): 
       staple: extras.staple,
     };
   }
-  if (kind === "photo") return { ...DEFAULT_PRINT_EXTRA_OPTIONS, photoFormat: extras.photoFormat, photoFit: extras.photoFit };
+  if (kind === "photo") return { ...DEFAULT_PRINT_EXTRA_OPTIONS, photoFormat: extras.photoFormat, photoFit: extras.photoFit, photoSurface: extras.photoSurface };
   return { ...DEFAULT_PRINT_EXTRA_OPTIONS, posterPaper: extras.posterPaper, posterFormat: extras.posterFormat,
     posterWidthMm: extras.posterWidthMm, posterHeightMm: extras.posterHeightMm };
 }
@@ -33,7 +33,7 @@ export function serializeOrderExtras(
   const selected = extrasForKind(kind, extras);
 
   if (kind === "photo") {
-    return { printKind: kind, colorMode, photoFormat: selected.photoFormat, photoFit: selected.photoFit };
+    return { printKind: kind, colorMode, photoFormat: selected.photoFormat, photoFit: selected.photoFit, photoSurface: selected.photoSurface };
   }
 
   if (kind === "poster") {
