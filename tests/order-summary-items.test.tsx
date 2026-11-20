@@ -1,0 +1,14 @@
+import assert from "node:assert/strict";
+import { renderToStaticMarkup } from "react-dom/server";
+import { OrderSummaryItems, type SummaryItem } from "../components/order-summary-items";
+const doc: SummaryItem = { id: "1", name: "test.pdf", kind: "document", pages: 4, printablePages: 3, copies: 2, sides: "two-sided", format: "A3", extras: { colorMode: "color", paper: "250", binding: true }, total: 180 };
+const render = (item: SummaryItem) => renderToStaticMarkup(<OrderSummaryItems items={[item]} />);
+assert.match(render(doc), /test.pdf/);
+assert.match(render(doc), /A3.*цветная.*двусторонняя.*3 из 4 стр\..*2 копии.*250.*переплёт/);
+assert.match(render(doc), /180 ₽/);
+const photo = render({ ...doc, kind: "photo", extras: { photoFormat: "A4", photoSurface: "matte", photoFit: "contain" } });
+assert.match(photo, /Фото.*A4.*матовая.*кадр целиком/);
+assert.doesNotMatch(photo, /переплёт/);
+const old = render({ ...doc, kind: null, extras: {} });
+assert.doesNotMatch(old, /Фото|Документ|ч\/б/);
+console.log("summary rendering: OK");

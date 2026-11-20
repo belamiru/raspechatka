@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { OrderSummaryItems, type SummaryItem } from "@/components/order-summary-items";
 import type { GuestOrder } from "@/lib/order-checkout";
-import { reachMetrikaGoal } from "@/lib/metrika";
+import { reachMetrikaGoal, reachMetrikaGoalBeforeNavigation } from "@/lib/metrika";
 import { YandexPickupWidget, type YandexPickupPoint } from "@/components/yandex-pickup-widget";
 import { OzonPickupPicker, type OzonPickupPoint } from "@/components/ozon-pickup-picker";
 import Link from "next/link";
@@ -18,7 +19,7 @@ const statusLabels: Record<string, string> = {
   completed: "Заказ выдан", cancelled: "Заказ отменён",
 };
 
-export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
+export function OrderCheckout({ order: initialOrder, summaryItems }: { order: GuestOrder; summaryItems: SummaryItem[] }) {
   const [order, setOrder] = useState(initialOrder);
   const [name, setName] = useState(order.customer_name);
   const [phone, setPhone] = useState(order.customer_phone);
@@ -153,13 +154,17 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
       const result = await response.json();
       if (!response.ok || !result.order) throw new Error(result.error ?? "Не удалось оформить заказ.");
       setOrder(result.order);
-      if (paymentMethod === "on_receipt") return;
+      if (paymentMethod === "on_receipt") {
+        await reachMetrikaGoalBeforeNavigation("order_created");
+        return;
+      }
       const payment = await fetch(`/api/orders/${order.id}/payments/tbank/init`, { method: "POST" });
       const paymentResult = await payment.json();
       if (!payment.ok || typeof paymentResult.paymentUrl !== "string") {
         throw new Error(paymentResult.error ?? "Не удалось перейти к оплате.");
       }
       reachMetrikaGoal("payment_started");
+      await reachMetrikaGoalBeforeNavigation("order_created");
       window.location.assign(paymentResult.paymentUrl);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Ошибка соединения. Попробуйте снова.");
@@ -170,6 +175,13 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
 
   const activeOzonQuote = ozonQuote && ozonQuote.phone === phone ? ozonQuote : null;
   const pending = order.status === "awaiting_checkout";
+  const currentDelivery = pending
+    ? method === "pickup" ? 0
+      : method === "yandex_pickup_point" ? (point && !quotingDelivery ? deliveryQuote?.priceRubles ?? null : null)
+      : (ozonPoint && !quotingOzon ? activeOzonQuote?.priceRubles ?? null : null)
+    : order.delivery_price;
+  const currentMethod = pending ? method : order.fulfillment_method;
+  const currentAddress = pending ? (method === "yandex_pickup_point" ? point?.address : method === "ozon_pickup_point" ? ozonPoint?.address : null) : order.pickup_point_address;
   const awaitingPayment = order.status === "awaiting_payment";
   const retryablePayment = ["REJECTED", "CANCELED", "CANCELLED", "DEADLINE_EXPIRED"].includes(order.payment_status ?? "");
   const deliveryLabel = order.fulfillment_method === "yandex_pickup_point" ? "Доставка в ПВЗ Яндекс Доставки"
@@ -462,6 +474,8 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <h2 className="text-lg font-black text-slate-950">Ваш заказ</h2>
+              <OrderSummaryItems items={summaryItems} />
+              <p className="mt-3 text-sm text-slate-600">{currentMethod === "pickup" ? "Самовывоз" : currentMethod === "ozon_pickup_point" ? "ПВЗ Ozon" : currentMethod === "yandex_pickup_point" ? "ПВЗ Яндекс Доставки" : "Способ получения не указан"}{currentAddress ? ` · ${currentAddress}` : ""}</p>
 
               <dl className="mt-4 space-y-2.5 border-b border-slate-100 pb-4 text-sm">
                 <div className="flex justify-between gap-4">
@@ -469,11 +483,11 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
                   <dd className="font-semibold text-slate-900">{order.print_price.toLocaleString("ru-RU")} ₽</dd>
                 </div>
 
-                {!pending && order.delivery_price !== null && (
+                {(currentMethod !== "pickup" || currentDelivery !== null) && (
                   <div className="flex justify-between gap-4">
                     <dt className="text-slate-600">Доставка</dt>
-                    <dd className={`font-semibold ${order.delivery_price === 0 ? "text-emerald-700" : "text-slate-900"}`}>
-                      {formatDeliveryPrice(order.delivery_price)}
+                    <dd className={`font-semibold ${currentDelivery === 0 ? "text-emerald-700" : "text-slate-900"}`}>
+                      {currentDelivery === null ? "Уточняется" : formatDeliveryPrice(currentDelivery)}
                     </dd>
                   </div>
                 )}
@@ -482,15 +496,12 @@ export function OrderCheckout({ order: initialOrder }: { order: GuestOrder }) {
               <div className="mt-4 flex items-baseline justify-between gap-4">
                 <span className="text-lg font-black text-slate-950">Итого:</span>
                 <span className="text-3xl font-black text-slate-950">
-                  {(pending ? order.print_price : order.total_price).toLocaleString("ru-RU")} ₽
+                  {(pending ? order.print_price + (currentDelivery ?? 0) : order.total_price).toLocaleString("ru-RU")} ₽
                 </span>
               </div>
 
-              {pending && (
-                <p className="mt-1 text-xs leading-5 text-slate-500">
-                  Доставка рассчитывается после выбора способа получения.
-                </p>
-              )}
+              {pending && currentDelivery === null && <p className="mt-1 text-xs leading-5 text-slate-500">Стоимость доставки ещё не рассчитана и не включена в итог.</p>}
+              {pending && currentDelivery !== null && currentMethod !== "pickup" && <p className="mt-1 text-xs leading-5 text-slate-500">Предварительный расчёт; сервер уточнит стоимость при оформлении.</p>}
             </div>
           </aside>
         </div>

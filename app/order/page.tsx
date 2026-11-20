@@ -1,5 +1,6 @@
 "use client";
 
+import { OrderSummaryItems } from "@/components/order-summary-items";
 import { priceOrderItem, extrasForKind } from "@/lib/order-item-pricing";
 
 /*
@@ -24,7 +25,7 @@ import {
 } from "@/lib/client-file-analysis";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
-import { reachMetrikaGoal } from "@/lib/metrika";
+import { reachMetrikaGoal, reachMetrikaGoalBeforeNavigation } from "@/lib/metrika";
 import { PHOTO_FORMATS } from "@/lib/pricing";
 import { DEFAULT_PRINT_SETTINGS, getDraftSettingsStorageKey, getPrintablePageOptions } from "@/lib/print-settings";
 import { PrintSettingsPanel } from "@/components/print-settings-panel";
@@ -157,11 +158,15 @@ export default function Home() {
   ) + extrasTotal;
 
   const documentsPrice = itemPricings
-    .filter((item) => item.file.kind === "document")
+    .filter((item) => (printKinds[item.file.id] ?? (item.file.kind === "image" ? "photo" : "document")) === "document")
     .reduce((total, item) => total + item.pricing.totalPrice, 0);
 
   const imagesPrice = itemPricings
-    .filter((item) => item.file.kind === "image")
+    .filter((item) => (printKinds[item.file.id] ?? (item.file.kind === "image" ? "photo" : "document")) === "photo")
+    .reduce((total, item) => total + item.pricing.totalPrice, 0);
+
+  const postersPrice = itemPricings
+    .filter((item) => printKinds[item.file.id] === "poster")
     .reduce((total, item) => total + item.pricing.totalPrice, 0);
 
   /*
@@ -521,6 +526,7 @@ export default function Home() {
       const response = await fetch("/api/orders", { method: "POST", body: data });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || "Не удалось оформить заказ.");
+      await reachMetrikaGoalBeforeNavigation("help_request_created");
       window.location.assign("/order/created");
     } catch (error) { setFormError(error instanceof Error ? error.message : "Ошибка соединения."); }
     finally { setIsSubmitting(false); }
@@ -900,6 +906,14 @@ export default function Home() {
               {files.length} {getFilesWord(files.length)} · {totalPages} {getPagesWord(totalPages)}
             </p>
 
+            <OrderSummaryItems items={itemPricings.map(({ file, extras, pricing, extrasPricing, printablePages }) => {
+              const settings = file.printSettings ?? DEFAULT_PRINT_SETTINGS;
+              const kind = printKinds[file.id] ?? (file.kind === "image" ? "photo" : "document");
+              return { id: file.id, name: file.file.name, kind, pages: file.pageCount ?? 0, printablePages,
+                copies: settings.copies, sides: kind === "document" ? settings.printSides : "one-sided",
+                format: settings.defaults.paperFormat, pageOverrides: kind === "document" ? settings.pageOverrides : {}, extras: { ...extras, colorMode: settings.defaults.colorMode },
+                total: pricing.totalPrice + extrasPricing.total };
+            })} />
             <dl className="mt-5 space-y-2.5 border-b border-slate-100 pb-5 text-sm">
               {documentsPrice > 0 && (
                 <div className="flex justify-between gap-4">
@@ -915,6 +929,7 @@ export default function Home() {
                 </div>
               )}
 
+              {postersPrice > 0 && <div className="flex justify-between gap-4"><dt className="text-slate-600">Печать плакатов</dt><dd className="font-semibold text-slate-900">{postersPrice} ₽</dd></div>}
               {extrasTotal > 0 && (
                 <div className="flex justify-between gap-4">
                   <dt className="text-slate-600">Дополнительные опции</dt>

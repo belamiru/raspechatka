@@ -8,7 +8,7 @@ export function HomeHero() {
           </span>
 
           <h1 className="mt-3 text-[2rem] font-black leading-[1.1] tracking-tight text-slate-950 sm:text-5xl lg:mt-0 lg:text-[3.4rem]">
-            Печать документов, фото и плакатов в Воронеже онлайн
+            Печать документов, фото и плакатов с доставкой в ПВЗ рядом с вашим домом
           </h1>
 
           <p className="mt-4 max-w-xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
