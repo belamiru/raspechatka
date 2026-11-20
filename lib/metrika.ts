@@ -25,3 +25,20 @@ export function reachMetrikaGoal(goalName: string) {
   }
   if (window.ym) window.ym(YANDEX_METRIKA_ID, "reachGoal", goalName);
 }
+
+// Give Metrika a moment to send a conversion before navigating away.
+export function reachMetrikaGoalBeforeNavigation(goalName: string): Promise<void> {
+  if (typeof window === "undefined" || !window.ym) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(resolve, 1000);
+    try {
+      window.ym!(YANDEX_METRIKA_ID, "reachGoal", goalName, {}, () => {
+        window.clearTimeout(timer);
+        resolve();
+      });
+    } catch {
+      window.clearTimeout(timer);
+      resolve();
+    }
+  });
+}
